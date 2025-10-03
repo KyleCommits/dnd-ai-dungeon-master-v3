@@ -1,0 +1,248 @@
+# Discord D&D Bot with AI-Driven Storytelling - Complete Specification
+
+Write the complete Python codebase for a Discord bot that facilitates Dungeons & Dragons 5e campaigns with AI-driven storytelling. The bot must handle campaign generation, character validation, world state management, and real-time Discord interactions. The goal is to create a persistent, narrative-driven D&D experience powered by local Llama models (primary) with API fallbacks and PostgreSQL.
+
+## Technologies and Stack
+Use the following Python libraries:
+- **discord.py** — For Discord bot integration and command handling
+- **psycopg2-binary** — For PostgreSQL database interaction
+- **python-dotenv** — For loading environment variables
+- **vllm** — For local LLM serving and inference (primary)
+- **transformers** — For model loading and tokenization
+- **torch** — For GPU acceleration
+- **accelerate** — For optimized model loading
+- **llama-index** — For RAG implementation and document processing
+- **llama-index-vector-stores-postgres** — PostgreSQL vector store integration
+- **llama-index-llms-vllm** — vLLM integration for LlamaIndex
+- **llama-index-embeddings-huggingface** — Local embeddings
+- **sentence-transformers** — For embedding models
+- **google-generativeai** — For Gemini API (backup)
+- **openai** — For XAI API integration (backup)
+- **PyPDF2** — For PDF parsing
+- **asyncio** — For async operations
+- **aiohttp** — For async HTTP requests
+- **numpy** — For numerical operations
+- **sqlalchemy** — For database ORM
+
+
+## Core Architecture
+Implement ONE main AI DM bot that:
+- **Primary**: Uses local Llama model via vLLM server for all AI inference
+- **RAG System**: Uses LlamaIndex for campaign content retrieval and SRD rule queries
+- **Fallback**: Uses Gemini or XAI APIs if local model fails or is overloaded
+- Responds to ALL messages in the designated channel automatically (no @mentions required)
+- Processes messages in chronological order for multiple players
+- Makes all final decisions about narrative, rules, and world state
+- Calls helper functions for rules validation, inventory management, and database operations
+- Maintains complete authority over the game flow and combat initiative
+
+## Local LLM Setup Requirements
+The bot must include setup and management for local LLM serving:
+- **Model Selection**: Start with Llama-3.2-11B-Vision-Instruct for RTX 4080 (12GB VRAM)
+- **vLLM Server**: Launch vLLM server on startup to serve the local model
+- **Memory Management**: Configure GPU memory utilization (90% recommended for RTX 4080)
+- **Context Length**: Support 4K+ token context for campaign continuity
+- **Graceful Fallback**: Auto-switch to API services if local model fails
+- **Performance Monitoring**: Track inference speed and memory usage
+- **LlamaIndex Integration**: Configure LlamaIndex to use vLLM server as LLM backend
+
+The main AI DM should handle:
+- Scene generation and narrative progression using local Llama model
+- Player action validation against 5e rules via LlamaIndex SRD queries
+- World state management and NPC interactions with RAG-retrieved context
+- Combat resolution with proper initiative order
+- Automatic dice rolling with character modifiers
+- Dynamic story adaptation using LlamaIndex-managed campaign content
+
+## LlamaIndex RAG Implementation
+Use LlamaIndex to replace manual RAG infrastructure:
+
+### Campaign Content Management
+- **Document Loading**: Use `SimpleDirectoryReader` to ingest campaign PDFs
+- **Chunking**: Configure optimal chunk sizes (1024 tokens, 200 overlap) for D&D content
+- **Vector Storage**: Use PostgreSQL vector store for embeddings
+- **Indexing**: Create separate indexes for campaigns and SRD content
+- **Query Engine**: Configure response modes for different query types
+
+### SRD Rules Integration
+- **Rules Database**: Use LlamaIndex to create searchable SRD content index
+- **Query Interface**: Natural language queries for spell details, monster stats, etc.
+- **Context Injection**: Automatically inject relevant rules into AI prompts
+
+### Implementation Structure
+The CampaignRAG class should manage both campaign content and SRD rules through separate LlamaIndex indexes. It should provide methods for setting up indexes from PDF documents, retrieving campaign context based on current game state, and looking up D&D rules using natural language queries. The implementation should use LlamaIndex's SimpleDirectoryReader for document loading, VectorStoreIndex for creating searchable indexes, and async query engines for retrieving relevant context.
+
+## Helper Modules (Non-AI)
+Create supporting modules for:
+- **vLLM Server Management**: Starting, stopping, and health checking the local LLM server
+- **LlamaIndex Setup**: Index creation, embedding management, vector store operations
+- **Model Loading**: Downloading and loading Llama models with proper GPU configuration
+- **API Fallback Logic**: Switching between local and cloud APIs based on availability
+- Combat initiative tracking and turn order management
+- Dice rolling with character modifiers (d20, damage, saves, etc.)
+- Rules validation functions (spell slots, inventory checks, combat mechanics)
+- Database operations (character updates, world state persistence)
+- Character sheet management (stats, conditions, experience, modifiers)
+- Random generators (encounters, loot, weather, etc.)
+
+## Message Processing Logic
+The bot must distinguish between two states:
+- **In Combat**: Enforce strict turn order. Only the character whose turn it is can perform actions. The bot should politely deny out-of-turn actions with a reminder of the turn order. Questions from any player may be answered at any time.
+- **Out of Combat**: Implement a **batch processing** system for natural conversation flow. The bot should wait for a short period of inactivity (e.g., 3-5 seconds) to collect messages from all players. It will then process the entire batch of messages as a single context, sending them to the AI to generate one consolidated, narrative response that addresses all recent player actions.
+- **Commands**: Process immediately regardless of combat state
+
+## Discord Bot Commands
+
+### Campaign Setup
+- `!new_campaign <description>` - Owner-only. Uses LlamaIndex to process PDF content and generate complete campaign with NPCs, locations, villains, and detailed plot outline
+- `!load_campaign <name>` - Load existing campaign and initialize RAG indexes
+- `!rebuild_index` - Owner-only. Rebuild LlamaIndex vectors for updated content
+
+### Character Management
+- `!create_character` - Guided character creation session with full stat generation
+- `!inventory` - Display character inventory
+- `!my_sheet` - Display full character stats and modifiers
+- `!use_item <item>` - Attempt to use an item
+- `!cast <spell>` - Attempt to cast a spell (with SRD rule validation)
+- `!rest` - Trigger long/short rest mechanics
+
+### Combat & Dice
+- `!roll <dice_expression>` - Manual dice rolling with character modifiers
+- `!initiative` - Start combat and roll initiative for all characters
+- `!end_combat` - End combat state
+- `!attack <target>` - Make attack roll with weapon/spell
+- `!save <type>` - Make saving throw with modifiers
+
+### Rules & Queries
+- `!rule <query>` - Query SRD rules using natural language
+- `!spell <spell_name>` - Get detailed spell information
+- `!monster <monster_name>` - Get monster stats and abilities
+- `!condition <condition>` - Get condition effects and rules
+
+### Admin Tools (Owner-only)
+- `!add_item @player <item>`
+- `!set_condition @player <condition>`
+- `!hp @player <value>`
+- `!resync_character @player` - Resync character state
+- `!advance_plot` - Force story progression
+- `!trigger_event <event_id>` - Manually trigger world events
+
+### Model & System Management
+- `!model_status` - Check local model health, GPU usage, and inference speed
+- `!switch_model <model_name>` - Owner-only. Switch between available local models
+- `!fallback_api` - Owner-only. Temporarily use API instead of local model
+- `!system_stats` - Display GPU memory, model performance metrics, RAG index stats
+- `!summarize_act` - Show current plot threads and progress
+- `!introduce_npc <npc_name>` - Bring NPC into current scene
+- `!turn_order` - Display current combat initiative order
+- `!index_stats` - Show LlamaIndex performance and storage metrics
+
+## Campaign Generation and Context Management (LlamaIndex RAG)
+The bot uses LlamaIndex for all RAG operations:
+
+### Index Creation Process
+1. **Document Ingestion**: Use `SimpleDirectoryReader` to load campaign PDFs automatically
+2. **Chunking Strategy**: Configure `ChunkSizeNodeParser` with D&D-optimized settings
+3. **Embedding Generation**: Use local sentence-transformers model for privacy
+4. **Vector Storage**: Store embeddings in PostgreSQL using `PGVectorStore`
+5. **Index Persistence**: Save indexes to disk for quick startup
+
+### Dynamic Context Retrieval
+- **Scene Context**: Query campaign index based on current location, active NPCs, plot state
+- **Rule Context**: Query SRD index for spell details, combat rules, conditions
+- **Multi-Index Queries**: Combine campaign and rules context for comprehensive responses
+- **Context Optimization**: Limit retrieved chunks to stay within token limits
+
+### Implementation Pattern
+During gameplay, the bot should retrieve campaign context by querying the campaign index with current location, active NPCs, and plot keywords. It should also query the SRD index for relevant rules based on player actions. The retrieved contexts should then be injected into the AI prompt to provide comprehensive background for generating responses.
+
+## D&D 5e Rules Implementation
+- **Scope**: The bot's knowledge of D&D 5e rules must be based on the **System Reference Document (SRD)**
+- **LlamaIndex Integration**: Use LlamaIndex to create searchable SRD content index
+- **Natural Language Queries**: Allow both bot and players to query rules using natural language
+- **Automatic Context**: AI DM automatically retrieves relevant rules for player actions
+- **Rule Validation**: Cross-reference player actions against SRD content
+
+## Dice Rolling System
+Implement comprehensive dice rolling that:
+- Automatically applies character modifiers (ability scores, proficiency, magic items)
+- Handles advantage/disadvantage
+- Supports all D&D dice types (d4, d6, d8, d10, d12, d20, d100)
+- Processes complex expressions (e.g., "2d6+3", "1d20+5 advantage")
+- Automatically determines success/failure against DCs
+- Rolls damage with critical hit doubling
+- The AI DM should see roll results and respond accordingly without player input
+
+## Database Design
+Design PostgreSQL schema with appropriate tables for:
+- **Campaign data**: name, description, current act, active plot threads
+- **Vector storage**: LlamaIndex embeddings and metadata
+- **NPCs**: stats, personality, current location, relationship to plot
+- **Locations**: descriptions, encounters, connections, events
+- **Characters**: full 5e stat blocks, inventory, conditions, spell slots, modifiers
+- **Combat state**: initiative order, current turn, rounds elapsed
+- **World state**: current location, time, active events, weather
+- **Message/action history** for context
+- **Plot threads and story hooks**
+- **Index metadata**: LlamaIndex storage and configuration
+
+Use proper foreign keys, indexes, and JSON columns where appropriate. Include pgvector extension for vector similarity searches.
+
+## AI Prompt Guidelines
+The main AI DM (using local Llama model primarily) should:
+- Always maintain narrative momentum and never ask "What do you do next?"
+- Respond with structured data (JSON) that can be parsed for database updates
+- Reference the complete LlamaIndex-retrieved campaign content for consistency
+- Handle rule enforcement thematically (e.g., "Your spell fizzles - you're out of spell slots")
+- Use story hooks to guide players back on track without obvious railroading
+- Process dice roll results automatically and incorporate into narrative
+- Manage combat initiative strictly while allowing out-of-turn questions
+- Generate rich, immersive descriptions while maintaining game balance
+- Adapt responses based on available context length and model capabilities
+- Use retrieved SRD context for accurate rule interpretations
+
+## Utility Scripts
+Create the following utility scripts:
+
+### setup_indexes.py
+- Uses LlamaIndex to process campaign PDFs in ./campaign_pdfs directory
+- Creates optimized vector indexes with proper chunking strategy
+- Processes SRD content for rules queries
+- Stores indexes in PostgreSQL vector store
+- Handles embedding model download and configuration
+
+### setup_local_llm.py
+- Downloads specified Llama models using Meta's official URLs
+- Configures vLLM server with optimal settings for RTX 4080
+- Sets up model switching capabilities and health monitoring
+- Implements graceful fallback to API services
+- Integrates with LlamaIndex LLM configuration
+
+### manage_campaign_content.py
+- Add/remove campaign PDFs and rebuild indexes
+- Monitor index performance and optimization
+- Backup and restore vector embeddings
+- Update embedding models and reprocess content
+
+## Key Requirements
+- **Local-First Architecture**: Primary reliance on local Llama model with API fallbacks
+- **LlamaIndex Integration**: Use LlamaIndex for all RAG operations instead of custom implementation
+- **vLLM Integration**: Proper server management and GPU optimization for RTX 4080
+- **Model Flexibility**: Support for switching between different Llama model sizes
+- Modular code structure with clear separation of concerns
+- Async I/O for Discord, database, and LlamaIndex operations
+- Comprehensive error handling for local model, API timeouts, and database issues
+- Environment variable security for all sensitive data
+- Detailed logging for local model performance, API fallbacks, and RAG operations
+- No external paid APIs for primary functionality (APIs only as backups)
+- Complete self-contained D&D 5e rule implementation via LlamaIndex
+- **Future Fine-tuning Support**: Architecture to support D&D-specific model training
+
+## Performance Considerations
+- **Memory Management**: Balance vLLM model loading with LlamaIndex embedding operations
+- **GPU Utilization**: Optimize for concurrent LLM inference and embedding generation
+- **Index Optimization**: Implement efficient vector similarity search with proper indexing
+- **Caching Strategy**: Cache frequent rule queries and campaign context retrievals
+- **Async Operations**: Use asyncio for non-blocking LlamaIndex operations
+
+Design the optimal database schemas, JSON response formats, combat tracking systems, vLLM server management, LlamaIndex integration, and internal architecture based on these functional requirements.

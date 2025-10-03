@@ -1,0 +1,103 @@
+/* Replicates character-card styles from App.css for consistency */
+.companion-card {
+    background-color: var(--secondary-bg);
+    border: 2px solid var(--border-primary);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.companion-card:hover {
+    border-color: var(--dnd-gold);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.character-main {
+    padding: 1.5rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.character-header {
+    border: none;
+    padding: 0;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.character-header h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.character-class {
+    color: var(--dnd-gold);
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.character-level {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    background-color: var(--primary-bg);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.character-stats {
+    margin-top: 1rem;
+}
+
+.stat-group {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.stat-group span {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    background-color: var(--primary-bg);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.character-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    background-color: var(--primary-bg);
+    border-top: 1px solid var(--border-primary);
+}
+
+.action-panel, .details-panel {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 1.5rem;
+}
+
+.status-alert {
+    background: var(--dnd-crimson);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: bold;
+    margin-top: 1rem;
+}
+
+.companion-card.unconscious .status-alert {
+    background: var(--dnd-amber);
+}

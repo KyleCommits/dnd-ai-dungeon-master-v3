@@ -1,0 +1,318 @@
+# Discord D&D 5e Bot Prompt
+
+Create a complete Python codebase for a Discord bot that facilitates Dungeons & Dragons 5e campaigns with AI-driven storytelling, using local Llama models (primary) with API fallbacks and PostgreSQL for state management. The bot provides a persistent, narrative-driven D&D experience, handling campaign generation, character management, world state, and real-time Discord interactions. The goal is to create an immersive, rules-accurate game with player agency over feats and abilities, dynamic shops tied to campaign context, online-only trading with confirmation, and a one-click/script solution for starting and shutting down the system.
+
+## Technologies and Stack
+Use these Python libraries:
+- discord.py — Discord bot integration and command handling
+- psycopg2-binary — PostgreSQL database interaction
+- python-dotenv — Load environment variables
+- vllm — Local LLM serving (primary)
+- transformers — Model loading and tokenization
+- torch — GPU acceleration
+- accelerate — Optimized model loading
+- llama-index — RAG for campaign and rules
+- llama-index-vector-stores-postgres — PostgreSQL vector store
+- llama-index-llms-vllm — vLLM integration for LlamaIndex
+- llama-index-embeddings-huggingface — Local embeddings
+- sentence-transformers — Embedding models
+- google-generativeai — Gemini API (backup)
+- openai — XAI API (backup)
+- PyPDF2 — PDF parsing
+- asyncio — Async operations
+- aiohttp — Async HTTP requests
+- numpy — Numerical operations
+- sqlalchemy — Database ORM
+- pyparsing — Dice expression parsing
+
+## Environment Variables (.env)
+```
+LOCAL_MODEL_NAME=meta-llama/Llama-3-8B-Instruct
+LOCAL_MODEL_PATH=/path/to/llama/models
+VLLM_HOST=localhost
+VLLM_PORT=8000
+GPU_MEMORY_UTILIZATION=0.9
+MAX_MODEL_LEN=4096
+TENSOR_PARALLEL_SIZE=1
+GEMINI_API_KEY=your_gemini_key
+XAI_API_KEY=your_xai_key
+DISCORD_TOKEN=your_token_here
+DATABASE_URL=postgresql://username:password@localhost:5432/dnd_db
+BOT_CHANNEL_ID=123456789012345678
+OWNER_ID=123456789012345678
+```
+
+## Core Architecture
+Implement a single AI Dungeon Master bot as the "conductor," using a local Llama model (via vLLM) for storytelling, NPC interactions, and narrative decisions. Support with tools: LlamaIndex RAG for campaign lore and rules, PostgreSQL for state management, and Python helpers for procedural tasks (dice, combat, character management). The bot responds to all messages in the designated Discord channel (no @mentions required), processes messages chronologically, and maintains authority over game flow and combat. Provide one-click/script solutions for starting and shutting down the system.
+
+- **Primary LLM**: Local Llama-3.2-11B-Vision-Instruct (RTX 4080, 12GB VRAM).
+- **RAG System**: LlamaIndex for rules and campaign content retrieval.
+- **Fallback**: Gemini or XAI APIs if local model fails.
+- **Tasks**:
+  - Scene generation and narrative progression.
+  - Player action validation against 5e rules (via LlamaIndex).
+  - World state and NPC management with RAG context.
+  - Combat resolution with initiative order.
+  - Automatic dice rolling with player-selected modifiers (feats/abilities).
+  - Dynamic story adaptation using campaign content.
+
+## System Startup and Shutdown
+- **Startup Script**: `start_system.py` launches all components with one command:
+  - Starts PostgreSQL connection (verify DATABASE_URL).
+  - Initializes vLLM server (Llama-3.2-11B-Vision-Instruct, 90% GPU utilization, 4K+ token context).
+  - Builds LlamaIndex indexes (rules and campaign) if not present.
+  - Starts Discord bot, connecting to BOT_CHANNEL_ID.
+  - Performs health checks (vLLM response, DB connection, index availability).
+  - Logs startup status to console and file (logs/startup.log).
+- **Shutdown Script**: `shutdown_system.py` gracefully stops all components:
+  - Stops Discord bot, disconnecting from channel.
+  - Shuts down vLLM server, freeing GPU memory.
+  - Closes PostgreSQL connections.
+  - Logs shutdown status to logs/shutdown.log.
+- **Implementation**:
+  - Use asyncio for concurrent startup (e.g., vLLM and bot).
+  - Check vLLM health via HTTP request to VLLM_HOST:VLLM_PORT.
+  - Ensure indexes are built using `setup_indexes.py` during startup.
+  - Handle errors (e.g., retry vLLM startup, fallback to API if needed).
+
+## Local LLM Setup
+- **Model**: Llama-3.2-11B-Vision-Instruct, optimized for RTX 4080.
+- **vLLM Server**: Launch via `start_system.py` (90% GPU utilization, 4K+ token context).
+- **Management**: Health checks, monitor inference speed/VRAM.
+- **Fallback**: Switch to Gemini/XAI APIs if local model fails (e.g., OOM error).
+- **Script**: `setup_local_llm.py` for model download, vLLM configuration.
+
+## LlamaIndex RAG Implementation
+- **Indexes**:
+  - Unified `rules_index` from `rules_and_supplements/` (SRD-OGL_V5.1.pdf, Player's Handbook (2014).md, Tasha's Cauldron of Everything.md, etc.).
+  - Per-campaign index from `campaigns/` (e.g., Curse of Strahd.md, Waterdeep: Dragon Heist.md).
+- **Ingestion**: SimpleDirectoryReader (MarkdownReader for .md, PyPDF2 for .pdf). Attach metadata (source filename, type: rules/campaign).
+- **Chunking**: Semantic chunking (512-1024 tokens) via sentence-transformers (all-MiniLM-L6-v2).
+- **Storage**: PGVectorStore for embeddings.
+- **Query Logic**: AI queries relevant index (rules for mechanics, campaign for narrative). Combine for complex queries (e.g., "Cast Fireball in Barovia").
+- **Script**: `setup_indexes.py` for index creation, called by `start_system.py`.
+
+## Narrative Cohesion
+- **Narrative Skeleton**: Campaigns have acts, events, climaxes (stored in `campaigns.plot_structure` JSONB).
+- **Plot State Tracker**: DB columns for `current_act`, `current_scene`, `plot_flags` (JSONB).
+- **Railroad Recovery Hooks**: Generate gentle hooks (rumors, NPCs) in `plot_threads` table.
+
+## Campaign Generation
+- **Meta-Analysis**: `analyze_structures.py` extracts patterns from `campaigns/` into `campaign_structures` table.
+- **Generation**: `!new_campaign <description>` creates new .md file, indexes with LlamaIndex.
+- **Script**: `manage_campaign_content.py` for adding/removing campaign files.
+
+## Helper Modules (Non-AI)
+- vLLM server management (start/stop, health checks).
+- LlamaIndex setup (index creation, embeddings).
+- API fallback logic (Gemini/XAI).
+- Combat initiative and turn order.
+- Dice rolling (d4-d100, expressions like "2d6+3", advantage/disadvantage, crit doubling).
+- Rules validation (spell slots, inventory, feats).
+- Character sheet management (stats, inventory, feats, abilities, conditions, wealth).
+- Random generators (encounters, loot, weather).
+
+## Message Processing
+- **Combat Mode**: Strict turn order; only current player acts; others can ask questions (queued separately).
+- **Out-of-Combat**: Batch messages (3-5s inactivity window) for consolidated AI response.
+- **Commands**: Process immediately, override batching.
+
+## Discord Bot Commands
+### Campaign Setup
+- `!new_campaign <description>`: Owner-only. Generate campaign using meta-analysis, create .md, index with LlamaIndex.
+- `!load_campaign <name>`: Load campaign, initialize RAG indexes.
+- `!rebuild_index`: Owner-only. Rebuild LlamaIndex vectors.
+- `!analyze_structures`: Owner-only. Run meta-analysis.
+
+### Character Management
+- `!create_character`: Interactive session (via Discord DMs) for 5e character creation (race, class, stats via point buy/standard array/4d6-drop-lowest, background, equipment, feats, abilities). Validate against SRD/Player's Handbook.
+- `!my_sheet`: Display full character sheet (stats, inventory, wealth, feats, abilities, conditions, spell slots) as Discord embed.
+- `!inventory`: List items (name, weight, properties), total weight (simple tracking, no encumbrance penalties).
+- `!use_item <item>`: Use item (validate via SRD/DMG).
+- `!drop_item <item>`: Remove item, update inventory/weight, add to `world_state.dropped_items` (JSONB).
+- `!trade_item <item> @player`: Initiate online trade; require receiver’s confirmation (✅/❌ reactions); update inventories.
+- `!buy_item <item>`: Purchase from dynamic shop (based on `world_state.location`); deduct gold, add item.
+- `!sell_item <item>`: Sell to shop (half price per PHB); add gold, remove item.
+- `!shop_list`: Show dynamic shop inventory (items/prices based on campaign location).
+- `!cast <spell>`: Cast spell, validate slots (SRD/PHB).
+- `!rest`: Apply short/long rest mechanics (HP, spell slots, conditions).
+- `!use_feat <feat_name> <action>`: Apply feat to action (e.g., `!use_feat Sharpshooter attack orc`), player-driven.
+- `!use_ability <ability_name> <action>`: Apply ability (e.g., `!use_ability Rage attack`).
+- `!show_feats`: List character’s feats (with uses, e.g., Lucky: 3/3).
+- `!show_abilities`: List character’s abilities.
+- `!level_up`: Detailed, interactive level-up session (via DMs or thread):
+  - Display current level, XP, class (e.g., “Eldrin, Rogue level 2, 900 XP”).
+  - Prompt for hit point increase (roll 1dX+CON or average per PHB).
+  - Offer ability score improvement (ASI: +2 to one stat, +1 to two stats, or +1/+1 with racial bonuses per Tasha’s) or feat selection (from PHB/Tasha’s, e.g., Lucky, Sentinel).
+  - List class features gained (e.g., Rogue’s Cunning Action).
+  - Prompt for subclass choices (e.g., Arcane Trickster at Rogue level 3).
+  - Update spell slots, proficiency bonus, abilities.
+  - Validate choices against SRD/PHB/Tasha’s via LlamaIndex.
+  - Narrative feedback: “Eldrin, your Rogue training sharpens, unlocking Cunning Action in Barovia’s mists!” (use campaign context, e.g., Curse of Strahd).
+  - Example flow: “You reach level 3! Choose: +1d6 Sneak Attack or feat? Reply `!choose_feature Sneak_Attack` or `!choose_feat Lucky`.”
+
+### Combat & Dice
+- `!roll <dice_expression> [--feat <feat>] [--ability <ability>] [--item <item>]`: Roll with player-selected modifiers (e.g., `!roll 1d20+3 --feat Sharpshooter`).
+- `!initiative`: Start combat, roll initiative (Dex mod + d20).
+- `!end_combat`: End combat.
+- `!attack <target>`: Attack roll (weapon/spell, auto-apply stats/proficiency).
+- `!save <type>`: Saving throw (auto-apply stats).
+
+### Rules & Queries
+- `!rule <query>`: Query rules via LlamaIndex (e.g., “How does grappling work?”).
+- `!spell <spell_name>`: Spell details.
+- `!monster <monster_name>`: Monster stats.
+- `!condition <condition>`: Condition effects.
+
+### Admin Tools (Owner-only)
+- `!add_item @player <item>`: Add item to inventory.
+- `!set_condition @player <condition>`: Set condition.
+- `!hp @player <value>`: Set HP.
+- `!resync_character @player`: Sync character data.
+- `!advance_plot`: Move to next plot point.
+- `!trigger_event <event_id>`: Trigger event.
+- `!set_plot_flag <flag_name>=true`: Set plot flag.
+
+### System Management
+- `!model_status`: Show local model health, GPU usage.
+- `!switch_model <model_name>`: Switch LLM.
+- `!fallback_api`: Force API fallback.
+- `!system_stats`: System metrics.
+- `!index_stats`: LlamaIndex stats.
+
+## Database Design
+PostgreSQL schema:
+```sql
+CREATE TABLE campaigns (
+  id SERIAL PRIMARY KEY,
+  name TEXT,
+  description TEXT,
+  current_act INT,
+  current_scene INT,
+  plot_flags JSONB,
+  plot_structure JSONB
+);
+CREATE TABLE campaign_structures (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  structures JSONB
+);
+CREATE TABLE campaign_chunks (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  chunk_text TEXT,
+  metadata JSONB,
+  embedding VECTOR(384)
+);
+CREATE TABLE npcs (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  name TEXT,
+  stats JSONB,
+  personality TEXT,
+  location TEXT
+);
+CREATE TABLE locations (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  name TEXT,
+  description TEXT,
+  encounters JSONB
+);
+CREATE TABLE characters (
+  player_id BIGINT PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  name TEXT,
+  level INT,
+  class TEXT,
+  race TEXT,
+  stats JSONB,
+  inventory JSONB,
+  wealth JSONB,
+  feats JSONB,
+  abilities JSONB,
+  conditions JSONB,
+  spell_slots JSONB
+);
+CREATE TABLE combat_state (
+  campaign_id INT REFERENCES campaigns(id),
+  initiative JSONB,
+  current_turn INT
+);
+CREATE TABLE world_state (
+  campaign_id INT REFERENCES campaigns(id),
+  location TEXT,
+  time TIMESTAMP,
+  events JSONB,
+  dropped_items JSONB
+);
+CREATE TABLE rules (
+  id SERIAL PRIMARY KEY,
+  type TEXT,
+  name TEXT,
+  details JSONB
+);
+CREATE TABLE shops (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  location TEXT,
+  items JSONB,
+  price_modifier FLOAT DEFAULT 1.0
+);
+CREATE TABLE trade_history (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  sender_id BIGINT,
+  receiver_id BIGINT,
+  item JSONB,
+  timestamp TIMESTAMP
+);
+CREATE TABLE message_history (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  player_id BIGINT,
+  message TEXT,
+  timestamp TIMESTAMP
+);
+CREATE TABLE plot_threads (
+  id SERIAL PRIMARY KEY,
+  campaign_id INT REFERENCES campaigns(id),
+  hook TEXT,
+  plot_point INT,
+  deviation_level INT
+);
+```
+Use indexes on `player_id`, `campaign_id`. PGVector for embeddings.
+
+## Dice Rolling System
+- Handle d4, d6, d8, d10, d12, d20, d100, expressions (e.g., "2d6+3"), advantage/disadvantage, crit doubling.
+- Auto-apply stats/proficiency; feats/abilities via player flags (e.g., `!roll 1d20+3 --feat Sharpshooter`).
+- Validate against SRD/PHB via LlamaIndex.
+- Log rolls to `message_history`.
+- AI narrates results (e.g., “Your Sharpshooter arrow hits for 18 damage!”).
+
+## Dynamic Shops
+- Generate shop inventories based on `world_state.location` and campaign files (e.g., Waterdeep: Dragon Heist.md for urban shops).
+- Items from PHB/DMG (e.g., longsword = 15 gp, healing potion = 50 gp).
+- Prices adjust via `shops.price_modifier` (e.g., 1.2x in Icewind Dale).
+- Limit magic items by campaign tier (e.g., uncommon only for low levels).
+- AI narrates: “The Chultan merchant offers a machete for 5 gp” (Tomb of Annihilation.md).
+
+## Online-Only Trading
+- `!trade_item <item> @player`: Requires receiver to be online (check Discord presence).
+- Confirmation via reactions (✅/❌).
+- Update `characters.inventory` and `total_weight` in a transaction.
+- Log to `trade_history`.
+- Narrative: “You trade a potion with @Player2 in Barovia’s mist” (Curse of Strahd.md).
+
+## AI Prompt Guidelines
+- Use local Llama for storytelling, NPC dialogue, narrative.
+- Reference RAG context for campaign/rules accuracy.
+- Enforce 5e rules thematically (e.g., “Your spell fails; no slots remain”).
+- Use hooks from `plot_threads` to guide without railroading.
+- Process rolls and narrate results.
+- Manage combat strictly; allow out-of-turn questions.
+- Output JSON for DB updates (e.g., `{"update": {"characters": {"player_id": 123, "hp": 20}}}`).
+
+## Utility Scripts
+- `start_system.py`: One-click startup for PostgreSQL, vLLM server, LlamaIndex indexes, Discord bot. Perform health

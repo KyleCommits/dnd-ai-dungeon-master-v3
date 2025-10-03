@@ -1,0 +1,275 @@
+/* web/src/styles/CharacterCreationSummary.css */
+
+.character-creation-summary {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  max-width: 400px;
+  min-width: 350px;
+}
+
+.summary-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 15px;
+}
+
+.summary-header h3 {
+  color: #fff;
+  margin: 0 0 15px 0;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.progress-steps {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-indicator {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.9em;
+  transition: all 0.3s ease;
+  cursor: help;
+}
+
+.step-indicator.completed {
+  background: #10b981;
+  color: white;
+}
+
+.step-indicator.current {
+  background: #3b82f6;
+  color: white;
+  border: 2px solid #60a5fa;
+}
+
+.step-indicator.pending {
+  background: #374151;
+  color: #9ca3af;
+  border: 1px solid #4b5563;
+}
+
+.summary-content {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.selection-section {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #333;
+}
+
+.selection-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.selection-section h4 {
+  color: #60a5fa;
+  margin: 0 0 10px 0;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.selection-value {
+  color: #fff;
+  font-weight: 500;
+  margin: 0 0 8px 0;
+  font-size: 1.1em;
+}
+
+.race-details,
+.class-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin: 8px 0;
+}
+
+.detail {
+  color: #d1d5db;
+  font-size: 0.9em;
+  background: #374151;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ability-increases {
+  margin-top: 8px;
+}
+
+.ability-increases strong {
+  color: #fbbf24;
+  font-size: 0.9em;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.ability-bonus {
+  background: #065f46;
+  color: #10b981;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-right: 8px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.subclass-note,
+.spellcasting-note {
+  color: #fbbf24;
+  font-size: 0.9em;
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.method-info {
+  color: #9ca3af;
+  font-size: 0.9em;
+  margin-bottom: 10px;
+  text-transform: capitalize;
+}
+
+.ability-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ability-score {
+  background: #374151;
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+
+.ability-name {
+  color: #9ca3af;
+  font-size: 0.8em;
+  font-weight: 500;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.ability-value {
+  color: #fff;
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+
+.ability-breakdown {
+  color: #6b7280;
+  font-size: 0.75em;
+}
+
+.skills-info,
+.feats-info {
+  margin-top: 8px;
+}
+
+.skills-info strong,
+.feats-info strong {
+  color: #fbbf24;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.derived-stats {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.derived-stats h4 {
+  color: #fbbf24;
+  margin-bottom: 15px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #374151;
+  border-radius: 4px;
+}
+
+.stat-label {
+  color: #d1d5db;
+  font-size: 0.9em;
+}
+
+.stat-value {
+  color: #fff;
+  font-weight: bold;
+  font-size: 1em;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .character-creation-summary {
+    max-width: 100%;
+    min-width: auto;
+    margin: 10px 0;
+    padding: 15px;
+  }
+
+  .ability-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .race-details,
+  .class-details {
+    gap: 8px;
+  }
+
+  .detail {
+    font-size: 0.8em;
+    padding: 1px 6px;
+  }
+}
+
+/* Scrollbar styling for webkit browsers */
+.summary-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.summary-content::-webkit-scrollbar-track {
+  background: #1f2937;
+  border-radius: 3px;
+}
+
+.summary-content::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+.summary-content::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}

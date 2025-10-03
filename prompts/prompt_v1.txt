@@ -1,0 +1,152 @@
+Write the complete Python codebase for a Discord bot that facilitates Dungeons & Dragons 5e campaigns with AI-driven storytelling. The bot must handle campaign generation, character validation, world state management, and real-time Discord interactions. The goal is to create a persistent, narrative-driven D&D experience powered by Gemini 1.5 Flash (free tier) and PostgreSQL.
+
+## Technologies and Stack
+Use the following Python libraries:
+- discord.py — For Discord bot integration and command handling
+- psycopg2 — For PostgreSQL database interaction
+- python-dotenv — For loading environment variables
+- google-generativeai — For interacting with Gemini 1.5 Flash
+- A PDF parser of your choice (e.g., PyPDF2, pdfminer.six)
+
+## Environment Variables (.env)
+
+DISCORD_TOKEN=your_token_here
+GEMINI_API_KEY=your_gemini_key
+DATABASE_URL=postgresql://username:password@localhost:5432/dnd_db
+BOT_CHANNEL_ID=123456789012345678
+OWNER_ID=123456789012345678
+
+## Core Architecture
+Implement ONE main AI DM bot that:
+- Responds to ALL messages in the designated channel automatically (no @mentions required)
+- Processes messages in chronological order for multiple players
+- Makes all final decisions about narrative, rules, and world state
+- Calls helper functions for rules validation, inventory management, and database operations
+- Maintains complete authority over the game flow and combat initiative
+
+The main AI DM should handle:
+- Scene generation and narrative progression
+- Player action validation against 5e rules
+- World state management and NPC interactions
+- Combat resolution with proper initiative order
+- Automatic dice rolling with character modifiers
+- Dynamic story adaptation using pre-generated campaign content
+
+## Helper Modules (Non-AI)
+Create supporting modules for:
+- Combat initiative tracking and turn order management
+- Dice rolling with character modifiers (d20, damage, saves, etc.)
+- Rules validation functions (spell slots, inventory checks, combat mechanics)
+- Database operations (character updates, world state persistence)
+- Character sheet management (stats, conditions, experience, modifiers)
+- Random generators (encounters, loot, weather, etc.)
+
+## Message Processing Logic
+The bot should distinguish between:
+- **In Combat**: Strict turn order enforcement
+  - Only current player can take actions
+  - Out-of-turn questions are allowed and answered
+  - Out-of-turn actions are politely denied with turn order reminder
+- **Out of Combat**: First-come-first-served natural conversation flow
+- **Commands**: Process immediately regardless of combat state
+
+## Discord Bot Commands
+
+### Campaign Setup
+- !new_campaign <description> - Owner-only. Uses PDF content to generate complete campaign with NPCs, locations, villains, and detailed plot outline
+- !load_campaign <name> - Load existing campaign
+
+### Character Management
+- !create_character - Guided character creation session with full stat generation
+- !inventory - Display character inventory
+- !my_sheet - Display full character stats and modifiers
+- !use_item <item> - Attempt to use an item
+- !cast <spell> - Attempt to cast a spell
+- !rest - Trigger long/short rest mechanics
+
+### Combat & Dice
+- !roll <dice_expression> - Manual dice rolling with character modifiers
+- !initiative - Start combat and roll initiative for all characters
+- !end_combat - End combat state
+- !attack <target> - Make attack roll with weapon/spell
+- !save <type> - Make saving throw with modifiers
+
+### Admin Tools (Owner-only)
+- !add_item @player <item>
+- !set_condition @player <condition>
+- !hp @player <value>
+- !resync_character @player - Resync character state
+- !advance_plot - Force story progression
+- !trigger_event <event_id> - Manually trigger world events
+
+### Game Flow
+- !summarize_act - Show current plot threads and progress
+- !introduce_npc <npc_name> - Bring NPC into current scene
+- !turn_order - Display current combat initiative order
+
+## Campaign Generation Process
+The bot should:
+- Accept PDF files (like "Call of the Deep" and "Glaive of the Revenant King") as campaign templates
+- Convert PDF to text and process in chunks if needed
+- Generate COMPLETE campaign content upfront, including:
+  - Detailed plot progression for all acts
+  - All NPCs with personalities, motivations, and dialogue
+  - All locations with descriptions and potential encounters
+  - Story hooks and railroad recovery mechanisms
+  - Branching paths and alternate outcomes
+- Store all generated content in database for consistent narrative reference
+
+## Dice Rolling System
+Implement comprehensive dice rolling that:
+- Automatically applies character modifiers (ability scores, proficiency, magic items)
+- Handles advantage/disadvantage
+- Supports all D&D dice types (d4, d6, d8, d10, d12, d20, d100)
+- Processes complex expressions (e.g., "2d6+3", "1d20+5 advantage")
+- Automatically determines success/failure against DCs
+- Rolls damage with critical hit doubling
+- The AI DM should see roll results and respond accordingly without player input
+
+## Database Design
+Design PostgreSQL schema with appropriate tables for:
+- Campaign data (name, description, current act, complete plot outline)
+- NPCs (stats, personality, current location, relationship to plot)
+- Locations (descriptions, encounters, connections, events)
+- Characters (full 5e stat blocks, inventory, conditions, spell slots, modifiers)
+- Combat state (initiative order, current turn, rounds elapsed)
+- World state (current location, time, active events, weather)
+- PDF campaign content storage
+- Message/action history for context
+- Plot threads and story hooks
+
+Use proper foreign keys, indexes, and JSON columns where appropriate.
+
+## AI Prompt Guidelines
+The main AI DM should:
+- Always maintain narrative momentum and never ask "What do you do next?"
+- Respond with structured data (JSON) that can be parsed for database updates
+- Reference the complete pre-generated campaign content for consistency
+- Handle rule enforcement thematically (e.g., "Your spell fizzles - you're out of spell slots")
+- Use story hooks to guide players back on track without obvious railroading
+- Process dice roll results automatically and incorporate into narrative
+- Manage combat initiative strictly while allowing out-of-turn questions
+- Generate rich, immersive descriptions while maintaining game balance
+
+## Utility Script
+Create convert_pdfs_to_db.py that:
+- Scans a directory for PDF files
+- Extracts full text content
+- Processes large PDFs in chunks for AI consumption
+- Stores in database with campaign name, content, and file path
+- Triggers complete campaign generation process
+
+## Key Requirements
+- Modular code structure with clear separation of concerns
+- Async I/O for Discord and database operations
+- Comprehensive error handling for API timeouts and database issues
+- Environment variable security for all sensitive data
+- Detailed logging for AI responses, dice rolls, and system events
+- No external paid APIs (D&D Beyond integration only if free)
+- Complete self-contained D&D 5e rule implementation
+- Pre-generate entire campaigns upfront for consistent storytelling
+
+Design the optimal database schemas, JSON response formats, combat tracking systems, and internal architecture based on these functional requirements.

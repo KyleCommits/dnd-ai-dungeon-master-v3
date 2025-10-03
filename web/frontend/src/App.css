@@ -1,0 +1,767 @@
+/* Professional D&D Color Palette */
+:root {
+  /* Base backgrounds - Wood tones */
+  --primary-bg: #2a251f;       /* Dark wood base */
+  --secondary-bg: #3a2f24;     /* Medium wood panels */
+  --accent-bg: #4a3a2a;        /* Lighter wood surfaces */
+  --surface-bg: #5a4535;       /* Interactive wood surfaces */
+
+  /* Borders and dividers - Wood tones */
+  --border-primary: #5a4535;   /* Wood borders */
+  --border-secondary: #6a5540; /* Hover wood borders */
+  --border-accent: #7a654a;    /* Active wood borders */
+
+  /* D&D thematic colors */
+  --dnd-burgundy: #8b2635;     /* Deep burgundy - primary accent */
+  --dnd-forest: #2c5530;       /* Forest green - success/nature */
+  --dnd-gold: #c9a876;         /* Antique gold - highlights */
+  --dnd-blue: #4a6fa5;         /* Muted blue - dice/utility */
+  --dnd-purple: #6b4c93;       /* Royal purple - skills/magic */
+  --dnd-amber: #b8860b;        /* Dark amber - warnings */
+  --dnd-crimson: #a0242b;      /* Deep red - combat/danger */
+
+  /* Text colors */
+  --text-primary: #e0e0e0;     /* Main text */
+  --text-secondary: #b0b0b0;   /* Secondary text */
+  --text-muted: #808080;       /* Muted text */
+  --text-accent: var(--dnd-gold); /* Accent text */
+
+  /* State colors */
+  --success: var(--dnd-forest);
+  --warning: var(--dnd-amber);
+  --error: var(--dnd-crimson);
+  --info: var(--dnd-blue);
+}
+
+body, input, select, textarea, button {
+  color: var(--text-primary);
+}
+
+.App {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--primary-bg);
+  color: var(--text-primary);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background-color: var(--secondary-bg);
+  border-bottom: 2px solid var(--border-primary);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.tab-navigation {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tab-button {
+  padding: 0.5rem 1rem;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 0.9rem;
+}
+
+.tab-button:hover {
+  background: var(--border-secondary);
+}
+
+.tab-button.active {
+  background: var(--dnd-burgundy);
+  color: white;
+}
+
+.app-header h1 {
+  margin: 0;
+  color: var(--dnd-gold);
+  font-size: 1.5rem;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-indicator {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.status-indicator.connected {
+  background-color: var(--success);
+  color: white;
+}
+
+.status-indicator.disconnected {
+  background-color: var(--error);
+  color: white;
+}
+
+.main-content-wrapper {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* Left Panel - Campaign Info */
+.left-panel {
+  width: 280px;
+  background-color: var(--secondary-bg);
+  border-right: 2px solid var(--border-primary);
+  padding: 1rem;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+/* Right Panel - Dice Rolling */
+.right-panel {
+  width: 280px;
+  background-color: var(--secondary-bg);
+  border-left: 2px solid var(--border-primary);
+  padding: 1rem;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.campaign-info {
+  background: linear-gradient(145deg, var(--accent-bg), color-mix(in srgb, var(--accent-bg) 90%));
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.campaign-info h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--dnd-gold);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: normal;
+}
+
+.campaign-info p {
+  margin: 0.25rem 0;
+  color: #cccccc;
+  font-size: 0.9rem;
+}
+
+.campaign-info select {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  background-color: var(--surface-bg);
+  color: white;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--primary-bg);
+  min-width: 0;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.message {
+  max-width: 70%;
+  padding: 1rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.message.user {
+  align-self: flex-end;
+  background-color: var(--dnd-blue);
+  color: white;
+}
+
+.message.dm {
+  align-self: flex-start;
+  background-color: var(--accent-bg);
+  border: 1px solid var(--border-accent);
+}
+
+.message.system {
+  align-self: center;
+  background-color: var(--success);
+  color: white;
+  font-weight: 500;
+  max-width: 80%;
+}
+
+.message.error {
+  align-self: center;
+  background-color: var(--error);
+  color: white;
+  font-weight: 500;
+  max-width: 80%;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.sender {
+  font-weight: 600;
+  color: var(--dnd-gold);
+}
+
+.message.user .sender {
+  color: #ffffff;
+}
+
+.timestamp {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+.message-content {
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.message-input-form {
+  display: flex;
+  padding: 1rem;
+  background-color: var(--secondary-bg);
+  border-top: 2px solid var(--border-primary);
+  gap: 1rem;
+}
+
+.message-input {
+  flex: 1;
+  padding: 1rem;
+  border: 2px solid var(--border-primary);
+  border-radius: 25px;
+  background-color: var(--primary-bg);
+  color: white;
+  font-size: 1rem;
+  outline: none;
+}
+
+.message-input:focus {
+  border-color: var(--dnd-gold);
+}
+
+.send-button {
+  padding: 1rem 2rem;
+  background-color: var(--dnd-burgundy);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--dnd-burgundy) 85%, black);
+}
+
+.send-button:disabled {
+  background-color: #666;
+  cursor: not-allowed;
+}
+
+/* Campaign Controls & Character Management General Styles */
+.page-container {
+  padding: 2rem;
+  background-color: var(--primary-bg);
+  width: 100%;
+  overflow-y: auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3rem;
+  border-bottom: 2px solid var(--border-primary);
+  padding-bottom: 1.5rem;
+  gap: 2rem;
+}
+
+.page-header h2 {
+  margin: 0;
+  color: var(--dnd-gold);
+  font-size: 1.8rem;
+}
+
+/* Enhanced 3D Button Styles */
+.btn {
+  position: relative;
+  padding: 0.75rem 1.5rem;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.15s ease-out;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 4px 8px rgba(0,0,0,0.5);
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 6px 12px rgba(0,0,0,0.5);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 
+    inset 0 2px 4px rgba(0,0,0,0.4),
+    0 2px 4px rgba(0,0,0,0.4);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--surface-bg);
+}
+
+.btn-primary {
+  background: linear-gradient(145deg, var(--dnd-forest), color-mix(in srgb, var(--dnd-forest) 80%));
+}
+.btn-secondary {
+  background: linear-gradient(145deg, var(--dnd-blue), color-mix(in srgb, var(--dnd-blue) 80%));
+}
+.btn-danger {
+  background: linear-gradient(145deg, var(--dnd-crimson), color-mix(in srgb, var(--dnd-crimson) 80%));
+}
+.btn-warning {
+  background: linear-gradient(145deg, var(--dnd-amber), color-mix(in srgb, var(--dnd-amber) 80%));
+}
+.btn-purple {
+    background: linear-gradient(145deg, var(--dnd-purple), color-mix(in srgb, var(--dnd-purple) 80%));
+}
+.btn-neutral {
+    background: linear-gradient(145deg, var(--surface-bg), color-mix(in srgb, var(--surface-bg) 80%));
+}
+
+/* Apply btn styles to dice buttons */
+.dice-button, .ability-button, .skill-button, .initiative-button, .save-button {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    min-height: 40px;
+}
+
+.dice-button { background: linear-gradient(145deg, var(--dnd-blue), color-mix(in srgb, var(--dnd-blue) 80%)); }
+.ability-button { background: linear-gradient(145deg, var(--dnd-forest), color-mix(in srgb, var(--dnd-forest) 80%)); }
+.skill-button { background: linear-gradient(145deg, var(--dnd-purple), color-mix(in srgb, var(--dnd-purple) 80%)); }
+.initiative-button { background: linear-gradient(145deg, var(--dnd-crimson), color-mix(in srgb, var(--dnd-crimson) 80%)); }
+.save-button { background: linear-gradient(145deg, var(--dnd-amber), color-mix(in srgb, var(--dnd-amber) 80%)); }
+
+/* Active Character Card Styling */
+.active-character-card {
+  background: var(--primary-bg);
+  border: 1px solid var(--border-accent);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  box-shadow: 
+    inset 0 1px 2px rgba(0,0,0,0.5),
+    0 2px 4px rgba(0,0,0,0.3);
+}
+
+.character-card-header h4 {
+  margin: 0 0 0.75rem 0;
+  color: var(--dnd-gold);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-primary);
+  padding-bottom: 0.5rem;
+}
+
+.character-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.character-name {
+  color: var(--text-primary);
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.character-details {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.character-vitals {
+  display: flex;
+  gap: 1rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.vital-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--secondary-bg);
+  padding: 0.5rem;
+  border-radius: 4px;
+  min-width: 50px;
+  border: 1px solid var(--border-primary);
+}
+
+.vital-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.vital-value {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.character-list,
+.companions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+  align-items: start;
+}
+
+.character-card {
+  background-color: var(--secondary-bg);
+  border: 2px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.character-card:hover {
+  border-color: var(--dnd-gold);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.character-card.active {
+  border-color: var(--dnd-forest);
+}
+
+.active-indicator {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: var(--dnd-gold);
+  color: var(--primary-bg);
+  padding: 0.25rem 0.75rem;
+  border-radius: 0 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: -2px 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: var(--secondary-bg);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 1200px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 2px solid var(--border-primary);
+}
+
+/* Campaign Generator Styles */
+.campaign-generator-container {
+    background-color: var(--secondary-bg);
+    padding: 2rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-primary);
+}
+  
+.campaign-generator-container h2 {
+    color: var(--dnd-gold);
+    text-align: center;
+    margin-bottom: 2rem;
+}
+  
+.campaign-generator-container .form-group {
+    margin-bottom: 1.5rem;
+}
+  
+.campaign-generator-container label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+  
+.campaign-generator-container input,
+.campaign-generator-container textarea {
+    width: 100%;
+    padding: 0.75rem;
+    background-color: var(--primary-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+}
+  
+.campaign-generator-container button {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1.2rem;
+}
+  
+.loading-indicator {
+    text-align: center;
+    margin-top: 2rem;
+}
+  
+.loading-indicator p {
+    color: var(--dnd-gold);
+    font-size: 1.2rem;
+}
+  
+.spinner {
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top: 4px solid var(--dnd-gold);
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 1rem auto;
+}
+
+.advantage-select, .modifier-input {
+  padding: 6px 8px;
+  background-color: var(--primary-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.advantage-select:focus, .modifier-input:focus {
+  outline: none;
+  border-color: var(--dnd-gold);
+}
+  
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Quick Spell Panel Styles */
+.spell-section {
+    margin-bottom: 1.5rem;
+    background: var(--accent-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid var(--border-primary);
+}
+
+.spell-section h4 {
+    margin: 0 0 1rem 0;
+    color: var(--dnd-purple);
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--border-primary);
+    padding-bottom: 0.5rem;
+}
+
+.spell-section h5 {
+    margin: 0.5rem 0;
+    color: var(--dnd-gold);
+    font-size: 0.9rem;
+}
+
+.spell-slots-display {
+    margin-bottom: 1rem;
+}
+
+.spell-slots-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.spell-slot-indicator {
+    background: var(--dnd-blue);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    min-width: 40px;
+}
+
+.quick-spell-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.quick-spell-button {
+    padding: 0.5rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.quick-spell-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+}
+
+.quick-spell-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.quick-spell-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--surface-bg) !important;
+}
+
+.quick-spell-button.cantrip {
+    background: linear-gradient(145deg, var(--dnd-purple), color-mix(in srgb, var(--dnd-purple) 80%));
+}
+
+.quick-spell-button.level-1 {
+    background: linear-gradient(145deg, var(--dnd-forest), color-mix(in srgb, var(--dnd-forest) 80%));
+}
+
+.quick-spell-button.level-2 {
+    background: linear-gradient(145deg, var(--dnd-blue), color-mix(in srgb, var(--dnd-blue) 80%));
+}
+
+.quick-spell-button.level-3,
+.quick-spell-button.level-4,
+.quick-spell-button.level-5 {
+    background: linear-gradient(145deg, var(--dnd-amber), color-mix(in srgb, var(--dnd-amber) 80%));
+}
+
+.quick-spell-button.level-6,
+.quick-spell-button.level-7,
+.quick-spell-button.level-8,
+.quick-spell-button.level-9 {
+    background: linear-gradient(145deg, var(--dnd-crimson), color-mix(in srgb, var(--dnd-crimson) 80%));
+}
+
+.no-spells {
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+
+.cantrips-section, .prepared-spells-section {
+    margin-bottom: 0.75rem;
+}
+
+/* Rest Controls Styles */
+.rest-controls {
+    background: var(--accent-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+    border: 1px solid var(--border-primary);
+}
+
+.rest-controls h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--dnd-gold);
+    font-size: 1rem;
+    border-bottom: 1px solid var(--border-primary);
+    padding-bottom: 0.5rem;
+}
+
+.rest-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.rest-buttons .btn {
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+}

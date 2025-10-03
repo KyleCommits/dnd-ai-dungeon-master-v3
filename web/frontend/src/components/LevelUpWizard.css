@@ -1,0 +1,97 @@
+.level-up-wizard {
+    background: var(--secondary-bg);
+    color: var(--text-primary);
+    border: 2px solid var(--border-primary);
+}
+
+.wizard-header {
+    border-bottom: 2px solid var(--border-primary);
+}
+
+.wizard-header h2 {
+    color: var(--dnd-gold);
+}
+
+.level-progress {
+    color: var(--dnd-amber);
+}
+
+.level-up-step {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.level-up-step h3 {
+    color: var(--dnd-gold);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.hp-option {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.hp-option label {
+    color: var(--dnd-gold);
+}
+
+.roll-hp-button {
+    background: var(--dnd-amber);
+}
+
+.select-average-button {
+    background: var(--dnd-blue);
+}
+
+.hp-manual-input {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.hp-result {
+    background: var(--primary-bg);
+    border: 2px solid var(--dnd-forest);
+}
+
+.hp-result strong {
+    color: var(--dnd-forest);
+}
+
+.feature-item {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.feature-item h4 {
+    color: var(--dnd-amber);
+}
+
+.feature-choices label {
+    color: var(--dnd-gold);
+}
+
+.feature-choices select,
+.subclass-select {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.wizard-actions {
+    border-top: 1px solid var(--border-primary);
+}
+
+.cancel-button {
+    background: var(--dnd-crimson);
+}
+
+.prev-button {
+    background: var(--surface-bg);
+}
+
+.next-button {
+    background: var(--dnd-blue);
+}
+
+.complete-button {
+    background: var(--dnd-forest);
+}

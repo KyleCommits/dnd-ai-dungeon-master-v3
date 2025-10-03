@@ -1,0 +1,110 @@
+# Prompt v5: Discord D&D Bot with AI-Driven Storytelling - Complete Specification
+
+Write the complete Python codebase for a Discord bot that facilitates Dungeons & Dragons 5e campaigns with AI-driven storytelling. The bot will operate on a **local-first** architecture, using local Llama models for primary inference, with a robust toolkit for managing campaign content, rules, and world state. The primary goal is to create a persistent, narratively coherent D&D experience.
+
+## 1. Core Architecture: The "AI Conductor" Model
+
+Implement a **single, authoritative AI Dungeon Master** that acts as the "conductor" of the game. This central AI (a local Llama model) is responsible for all creative storytelling, NPC interactions, and narrative decisions.
+
+However, the AI does not operate alone. It is supported by a **plethora of specialized tools** (the "orchestra") that it queries for information and delegates procedural tasks to. This architecture allows the AI to focus on creative generation while relying on reliable tools for facts, memory, and rules.
+
+* **Primary AI (The Conductor):** Local Llama model served via vLLM.
+* **The Toolkit (The Orchestra):**
+    * **LlamaIndex RAG:** The AI's long-term memory for campaign lore and game rules.
+    * **PostgreSQL Database:** The AI's short-term memory and notebook for character sheets, world state, and plot progression.
+    * **Campaign Meta-Analysis DB:** The AI's knowledge base of storytelling patterns and adventure design.
+    * **Python Helper Modules:** The AI's assistants for dice rolling, combat tracking, etc.
+    * **API Fallback:** A safety net to external APIs (Gemini/OpenAI) if the local model fails.
+
+---
+
+## 2. Technologies and Stack
+
+* **Discord:** `discord.py`
+* **Database:** `psycopg2-binary`, `sqlalchemy` (ORM), `asyncpg`
+* **Local LLM Serving:** `vllm`, `transformers`, `torch`, `accelerate`
+* **RAG & Vector DB:** `llama-index`, `llama-index-vector-stores-postgres`, `llama-index-llms-vllm`, `llama-index-embeddings-huggingface`
+* **Utilities:** `python-dotenv`, `PyPDF2`, `asyncio`, `aiohttp`, `numpy`
+
+---
+
+## 3. Narrative Cohesion Framework
+
+To solve the problem of a directionless AI, the bot must implement a robust framework for maintaining a "grand narrative."
+
+* **Narrative Skeleton:** All campaigns, whether pre-written or AI-generated, must exist as a complete document with a defined plot structure (acts, key events, climax, resolution). The AI's job is to guide players through this skeleton.
+* **Plot State Tracker:** The PostgreSQL database must maintain a persistent state of the campaign's progress. This includes tables/columns for:
+    * `current_act` and `current_scene`.
+    * `plot_flags` (JSONB column to track key events, e.g., `{"met_the_king": true, "found_the_cursed_idol": false}`).
+    * The AI must query this state *before every single narrative response* to ensure context.
+* **Railroad Recovery Hooks:** The campaign generation process must create a list of "recovery hooks" for major plot points. If players stray too far from the main narrative, the AI DM should consult and deploy one of these hooks (e.g., an NPC intervention, a new rumor) to gently guide the party back to the main story.
+
+---
+
+## 4. Campaign Generation: Meta-Analysis & Synthesis
+
+The bot will feature a sophisticated, automated system for generating brand new campaigns based on the entire library of existing adventure modules.
+
+* **Part 1 (Offline Meta-Analysis):** An offline utility script (`analyze_structures.py`) will perform a "meta-analysis" of all campaign files in the `dnd_src_material/campaigns` directory.
+    * For each adventure, it will use an LLM to extract core structural elements (narrative structure, plot hook types, NPC archetypes, villain motivations, etc.) into a structured format (JSON).
+    * This structured data (the "blueprints" of campaign design) will be stored in a dedicated `campaign_structures` table in the PostgreSQL database.
+* **Part 2 (Automated Generation):** The `!new_campaign <description>` command triggers the automated generation process.
+    * The user's description acts as a **"Creative Seed."**
+    * The AI queries the `campaign_structures` database to find relevant design patterns based on the seed.
+    * The AI then uses the **Creative Seed** combined with the retrieved **design patterns** to orchestrate a generative prompt chain, building a new, complete campaign piece by piece (outline, NPCs, locations, recovery hooks, etc.).
+    * The final campaign is saved as a new Markdown file and is automatically indexed by LlamaIndex, ready for play.
+
+---
+
+## 5. LlamaIndex RAG Implementation
+
+The bot will use LlamaIndex for all content and rule retrieval.
+
+* **Indexing Strategy:** The system will maintain multiple, distinct indexes:
+    * **A Unified `rules_index`:** An index created from *all* files in the `dnd_src_material/rules_and_supplements` directory (including the SRD, Player's Handbook, etc.). This provides a single, comprehensive source for all rule lookups.
+    * **A Separate Index Per Campaign:** Each adventure module in the `dnd_src_material/campaigns` directory will have its own, unique index (e.g., `curse_of_strahd_index`). The `!load_campaign` command will load the appropriate index for the active game, preventing narrative contamination between adventures.
+* **Data Ingestion:** The indexing scripts must prioritize the `MarkdownReader` for `.md` files to preserve their structure, and use a PDF reader as a fallback for `.pdf` files. Metadata (e.g., source filename) must be attached to each chunk.
+* **Query Logic:** The AI DM must be programmed to intelligently query the correct index. Player actions like `!cast Fireball` trigger queries to the `rules_index`. Narrative generation for the current scene triggers queries to the active `campaign_index`.
+
+---
+
+## 6. Discord Bot Commands
+
+* **Campaign Setup:** `!new_campaign <description>`, `!load_campaign <name>`, `!rebuild_index`, `!analyze_structures` (Owner-only, runs the meta-analysis).
+* **Character Management:** `!create_character`, `!inventory`, `!my_sheet`, `!use_item <item>`, `!cast <spell>`, `!rest`.
+* **Combat & Dice:** `!roll <dice_expression>`, `!initiative`, `!end_combat`, `!attack <target>`, `!save <type>`.
+* **Rules & Queries:** `!rule <query>`, `!spell <spell_name>`, `!monster <monster_name>`.
+* **Admin Tools:** `!add_item`, `!set_condition`, `!hp`, `!resync_character`, `!advance_plot`, `!set_plot_flag @player flag_name=true`.
+* **Model & System Management:** `!model_status`, `!switch_model`, `!fallback_api`, `!system_stats`, `!index_stats`.
+* **Game Flow:** `!summarize_plot`, `!turn_order`.
+
+---
+
+## 7. Utility Scripts
+
+* `setup_indexes.py`: Processes source material, creates the `rules_index` and all individual `campaign_indexes`.
+* `setup_local_llm.py`: Downloads and configures the local Llama model for vLLM serving.
+* `analyze_structures.py`: Performs the one-time meta-analysis of all campaign modules to populate the `campaign_structures` database table.
+* `manage_campaign_content.py`: Utility for adding/removing source files and rebuilding relevant indexes.
+
+---
+
+## 8. Database Design
+
+The PostgreSQL schema must include tables for:
+* Campaign data, including **plot state tracking columns** (`current_act`, `plot_flags`).
+* The **`campaign_structures` table** for the meta-analysis results.
+* LlamaIndex vector storage (using `pgvector`).
+* Characters, NPCs, Locations, Combat State, World State, and Message History.
+
+---
+
+## 9. AI Prompt Guidelines
+
+The main AI DM should:
+* **Always begin its process by querying the database for the current Plot State.**
+* Use LlamaIndex-retrieved campaign content for narrative consistency.
+* Use LlamaIndex-retrieved rules for accurate mechanical rulings.
+* When players deviate, consult the pre-generated **Railroad Recovery Hooks** to guide them back to the main story.
+* Respond with structured JSON that can be parsed for database updates (e.g., changing plot flags, updating HP).
+* Always maintain narrative momentum; never be passive.

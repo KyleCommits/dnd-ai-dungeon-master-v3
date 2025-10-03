@@ -1,0 +1,40 @@
+.campaign-generator {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 2rem;
+    background-color: var(--secondary-bg);
+    border-radius: 12px;
+    border: 2px solid var(--border-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.generator-header h2 {
+    color: var(--dnd-gold);
+    margin-bottom: 1rem;
+}
+
+.generator-subtitle {
+    color: var(--text-secondary);
+}
+
+.input-group label {
+    color: var(--text-accent);
+}
+
+.input-group textarea {
+    background-color: var(--primary-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+.input-group textarea:focus {
+    border-color: var(--dnd-gold);
+}
+
+.generate-button {
+    background: var(--dnd-burgundy);
+}
+
+.generate-button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dnd-burgundy) 85%, black);
+}

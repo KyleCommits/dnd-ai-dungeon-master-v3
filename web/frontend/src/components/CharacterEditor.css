@@ -1,0 +1,80 @@
+.character-editor {
+    background: var(--secondary-bg);
+    color: var(--text-primary);
+    border-radius: 12px;
+    padding: 2rem;
+    border: 2px solid var(--border-primary);
+}
+
+.editor-header h3 {
+    color: var(--dnd-gold);
+}
+
+.editor-section {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.editor-section h4 {
+    color: var(--dnd-gold);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.form-group label {
+    color: var(--text-accent);
+}
+
+.form-group input {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+}
+
+.form-group input:focus {
+    border-color: var(--dnd-gold);
+}
+
+.abilities-grid {
+    gap: 1rem;
+}
+
+.ability-group {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.ability-group label {
+    color: var(--dnd-gold);
+}
+
+.ability-button {
+    background: var(--accent-bg);
+}
+
+.ability-button:hover:not(:disabled) {
+    background: var(--border-secondary);
+}
+
+.ability-input {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.hp-bar-container {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+}
+
+.hp-bar-fill {
+    background-color: var(--dnd-forest);
+}
+
+.status-warning {
+    color: var(--dnd-crimson);
+    background: color-mix(in srgb, var(--dnd-crimson) 15%, transparent);
+    border: 1px solid var(--dnd-crimson);
+}
+
+.editor-actions {
+    border-top: 1px solid var(--border-primary);
+}

@@ -1,0 +1,68 @@
+# Core Discord and Database
+discord.py==2.3.2
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+sqlalchemy==2.0.31
+asyncpg==0.29.0
+
+# Web System (FastAPI)
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+websockets==12.0
+python-multipart==0.0.9
+pydantic==2.8.0
+pydantic-settings==2.3.0
+
+# Local LLM (Transformers-based) - Using older compatible versions
+transformers==4.37.0
+torch==2.1.2
+accelerate==0.25.0
+bitsandbytes==0.41.3.post2
+
+# LlamaIndex Core - Using compatible versions
+llama-index==0.10.20
+llama-index-core==0.10.20
+llama-index-vector-stores-postgres==0.1.6
+llama-index-readers-file==0.1.21
+
+# Use older compatible versions of HuggingFace integrations
+llama-index-embeddings-huggingface==0.1.4
+# Skip llama-index-llms-huggingface for now - use HuggingFaceLLM directly from core
+
+# Embeddings and Vector Operations - Compatible with transformers 4.36.2
+sentence-transformers==2.2.2
+numpy==1.24.4
+scipy==1.11.4
+
+# API Fallbacks
+google-generativeai==0.3.2
+openai==1.6.1
+groq
+
+# PDF Processing and File Handling
+PyPDF2==3.0.1
+pdfminer.six==20221105
+python-magic==0.4.27
+
+# Async and HTTP
+aiohttp==3.9.1
+aiofiles==23.2.0
+httpx==0.26.0
+
+# Utilities and Data Processing
+tenacity==8.2.3
+tiktoken==0.5.2
+regex==2023.12.25
+
+# Monitoring and Logging
+psutil==5.9.6
+gpustat==1.1.1
+
+# Development and Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.12.1
+isort==5.13.2
+
+# Database Migrations (optional)
+alembic==1.13.1

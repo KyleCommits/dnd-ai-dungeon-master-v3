@@ -1,0 +1,71 @@
+.companion-selection-modal {
+    background: var(--secondary-bg);
+    border: 2px solid var(--border-primary);
+}
+
+.modal-header {
+    background: var(--primary-bg);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-header h2 {
+    color: var(--dnd-gold);
+}
+
+.close-btn {
+    color: var(--text-secondary);
+}
+
+.close-btn:hover {
+    background: var(--surface-bg);
+    color: var(--text-primary);
+}
+
+.template-card {
+    border: 2px solid var(--border-primary);
+    background: var(--surface-bg);
+}
+
+.template-card:hover {
+    border-color: var(--dnd-gold);
+}
+
+.template-header h4 {
+    color: var(--text-primary);
+}
+
+.cr {
+    background: var(--dnd-amber);
+}
+
+.abilities-row {
+    background: var(--primary-bg);
+}
+
+.ability-name {
+    color: var(--text-secondary);
+}
+
+.ability-score {
+    color: var(--text-primary);
+}
+
+.form-group label {
+    color: var(--text-accent);
+}
+
+.form-group input,
+.form-group textarea {
+    background: var(--primary-bg);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    border-color: var(--dnd-gold);
+}
+
+.create-companion-btn {
+    background: var(--dnd-forest);
+}

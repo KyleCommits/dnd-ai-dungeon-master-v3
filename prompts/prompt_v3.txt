@@ -1,0 +1,206 @@
+Write the complete Python codebase for a Discord bot that facilitates Dungeons & Dragons 5e campaigns with AI-driven storytelling. The bot must handle campaign generation, character validation, world state management, and real-time Discord interactions. The goal is to create a persistent, narrative-driven D&D experience powered by Gemini 1.5 Flash (free tier) and PostgreSQL.
+
+## Technologies and Stack
+Use the following Python libraries:
+- discord.py — For Discord bot integration and command handling
+- psycopg2 — For PostgreSQL database interaction
+- python-dotenv — For loading environment variables
+- vllm — For local LLM serving and inference (primary)
+- transformers — For model loading and tokenization
+- torch — For GPU acceleration
+- accelerate — For optimized model loading
+- google-generativeai — For Gemini API (backup)
+- openai — For XAI API integration (backup)
+- A PDF parser of your choice (e.g., PyPDF2, pdfminer.six)
+
+## Environment Variables (.env)
+
+# Local LLM Configuration (Primary)
+LOCAL_MODEL_NAME=meta-llama/Llama-3.2-11B-Vision-Instruct
+LOCAL_MODEL_PATH=/path/to/llama/models
+VLLM_HOST=localhost
+VLLM_PORT=8000
+GPU_MEMORY_UTILIZATION=0.9
+MAX_MODEL_LEN=4096
+TENSOR_PARALLEL_SIZE=1
+
+# API Backups
+GEMINI_API_KEY=your_gemini_key
+XAI_API_KEY=your_xai_key
+
+# Discord & Database
+DISCORD_TOKEN=your_token_here
+DATABASE_URL=postgresql://username:password@localhost:5432/dnd_db
+BOT_CHANNEL_ID=123456789012345678
+OWNER_ID=123456789012345678
+
+
+## Core Architecture
+Implement ONE main AI DM bot that:
+- **Primary**: Uses local Llama model via vLLM server for all AI inference
+- **Fallback**: Uses Gemini or XAI APIs if local model fails or is overloaded
+- Responds to ALL messages in the designated channel automatically (no @mentions required)
+- Processes messages in chronological order for multiple players
+- Makes all final decisions about narrative, rules, and world state
+- Calls helper functions for rules validation, inventory management, and database operations
+- Maintains complete authority over the game flow and combat initiative
+
+## Local LLM Setup Requirements
+The bot must include setup and management for local LLM serving:
+- **Model Selection**: Start with Llama-3.2-11B-Vision-Instruct for RTX 4080 (12GB VRAM)
+- **vLLM Server**: Launch vLLM server on startup to serve the local model
+- **Memory Management**: Configure GPU memory utilization (90% recommended for RTX 4080)
+- **Context Length**: Support 4K+ token context for campaign continuity
+- **Graceful Fallback**: Auto-switch to API services if local model fails
+- **Performance Monitoring**: Track inference speed and memory usage
+
+The main AI DM should handle:
+- Scene generation and narrative progression using local Llama model
+- Player action validation against 5e rules
+- World state management and NPC interactions
+- Combat resolution with proper initiative order
+- Automatic dice rolling with character modifiers
+- Dynamic story adaptation using pre-generated campaign content
+
+## Helper Modules (Non-AI)
+Create supporting modules for:
+- **vLLM Server Management**: Starting, stopping, and health checking the local LLM server
+- **Model Loading**: Downloading and loading Llama models with proper GPU configuration
+- **API Fallback Logic**: Switching between local and cloud APIs based on availability
+- Combat initiative tracking and turn order management
+- Dice rolling with character modifiers (d20, damage, saves, etc.)
+- Rules validation functions (spell slots, inventory checks, combat mechanics)
+- Database operations (character updates, world state persistence)
+- Character sheet management (stats, conditions, experience, modifiers)
+- Random generators (encounters, loot, weather, etc.)
+
+## Message Processing Logic
+The bot must distinguish between two states:
+- **In Combat**: Enforce strict turn order. Only the character whose turn it is can perform actions. The bot should politely deny out-of-turn actions with a reminder of the turn order. Questions from any player may be answered at any time.
+- **Out of Combat**: Implement a **batch processing** system for natural conversation flow. The bot should wait for a short period of inactivity (e.g., 3-5 seconds) to collect messages from all players. It will then process the entire batch of messages as a single context, sending them to the AI to generate one consolidated, narrative response that addresses all recent player actions.
+- **Commands**: Process immediately regardless of combat state
+
+## Discord Bot Commands
+
+### Campaign Setup
+- !new_campaign <description> - Owner-only. Uses PDF content to generate complete campaign with NPCs, locations, villains, and detailed plot outline
+- !load_campaign <name> - Load existing campaign
+
+### Character Management
+- !create_character - Guided character creation session with full stat generation
+- !inventory - Display character inventory
+- !my_sheet - Display full character stats and modifiers
+- !use_item <item> - Attempt to use an item
+- !cast <spell> - Attempt to cast a spell
+- !rest - Trigger long/short rest mechanics
+
+### Combat & Dice
+- !roll <dice_expression> - Manual dice rolling with character modifiers
+- !initiative - Start combat and roll initiative for all characters
+- !end_combat - End combat state
+- !attack <target> - Make attack roll with weapon/spell
+- !save <type> - Make saving throw with modifiers
+
+### Admin Tools (Owner-only)
+- !add_item @player <item>
+- !set_condition @player <condition>
+- !hp @player <value>
+- !resync_character @player - Resync character state
+- !advance_plot - Force story progression
+- !trigger_event <event_id> - Manually trigger world events
+
+### Model & System Management
+- !model_status - Check local model health, GPU usage, and inference speed
+- !switch_model <model_name> - Owner-only. Switch between available local models
+- !fallback_api - Owner-only. Temporarily use API instead of local model
+- !system_stats - Display GPU memory, model performance metrics
+- !summarize_act - Show current plot threads and progress
+- !introduce_npc <npc_name> - Bring NPC into current scene
+- !turn_order - Display current combat initiative order
+
+## Campaign Generation and Context Management (RAG Approach)
+The bot must use a **Retrieval-Augmented Generation (RAG)** system for campaign management. The upfront generation process is as follows:
+1. **Parse and Chunk**: The !new_campaign command (or a utility script) must parse the source PDF into small, topically-focused text chunks. These chunks should be granular (e.g., a single location's description, an NPC's backstory and motivations, a specific plot point, an encounter's details).
+2. **Store and Tag**: Store these chunks in a dedicated database table. Each chunk should be tagged with relevant keywords (e.g., location:Red_Larch, npc:Lady_Valerosa, plot:Clue_1) to make it searchable.
+3. **Dynamic Retrieval**: During gameplay, before calling the Gemini API, the bot's code must identify the context of the current scene (e.g., players' location, NPCs present). It will then query the database to retrieve only the most relevant chunks.
+4. **Inject Context**: These retrieved chunks are then inserted into the prompt sent to the AI DM, providing focused, dynamic context for generating the next part of the narrative.
+5. **Context Limits**: Use semantic search or keyword matching to find relevant chunks. Limit context injection to prevent prompt overflow (e.g., max 10 most relevant chunks). Include fallback mechanisms if no relevant chunks are found.
+
+## D&D 5e Rules Implementation
+- **Scope**: The bot's knowledge of D&D 5e rules must be based on the **System Reference Document (SRD)**.
+- **Rules Database**: Implement a dedicated rules database. A one-off utility script should be created to parse the SRD PDF (SRD-OGL_V5.1.pdf in your project folder) and populate database tables for spells, items, monsters, conditions, etc.
+- **AI Queries**: The main AI DM should be instructed to **query this internal database** for specific rule information (e.g., a spell's range, an item's properties) to ensure accuracy and consistency. This makes the bot's rule arbitration verifiable and not solely reliant on the LLM's memory.
+
+## Dice Rolling System
+Implement comprehensive dice rolling that:
+- Automatically applies character modifiers (ability scores, proficiency, magic items)
+- Handles advantage/disadvantage
+- Supports all D&D dice types (d4, d6, d8, d10, d12, d20, d100)
+- Processes complex expressions (e.g., "2d6+3", "1d20+5 advantage")
+- Automatically determines success/failure against DCs
+- Rolls damage with critical hit doubling
+- The AI DM should see roll results and respond accordingly without player input
+
+## Database Design
+Design PostgreSQL schema with appropriate tables for:
+- **Campaign data**: name, description, current act, active plot threads
+- **Campaign chunks**: granular content pieces with tags and keywords for RAG retrieval
+- **NPCs**: stats, personality, current location, relationship to plot
+- **Locations**: descriptions, encounters, connections, events
+- **Characters**: full 5e stat blocks, inventory, conditions, spell slots, modifiers
+- **Combat state**: initiative order, current turn, rounds elapsed
+- **World state**: current location, time, active events, weather
+- **Rules database**: spells, items, monsters, conditions (from SRD)
+- **Message/action history** for context
+- **Plot threads and story hooks**
+
+For the initial build, generate logical and robust database schemas and AI-to-bot JSON response formats based on these requirements. These schemas can be refined later in development. Prioritize structures that are easy to update and query.
+
+Use proper foreign keys, indexes, and JSON columns where appropriate.
+
+## AI Prompt Guidelines
+The main AI DM (using local Llama model primarily) should:
+- Always maintain narrative momentum and never ask "What do you do next?"
+- Respond with structured data (JSON) that can be parsed for database updates
+- Reference the complete RAG-retrieved campaign content for consistency
+- Handle rule enforcement thematically (e.g., "Your spell fizzles - you're out of spell slots")
+- Use story hooks to guide players back on track without obvious railroading
+- Process dice roll results automatically and incorporate into narrative
+- Manage combat initiative strictly while allowing out-of-turn questions
+- Generate rich, immersive descriptions while maintaining game balance
+- Adapt responses based on available context length and model capabilities
+
+## Utility Scripts
+Create the following utility scripts:
+
+### convert_pdfs_to_db.py
+- Scans the project directory for campaign PDF files (Call from the Deep.pdf, Glaive of the Revenant King 5e.pdf)
+- Extracts full text content and chunks it into granular, topically-focused sections
+- Tags chunks with relevant keywords for searchability
+- Stores in database with campaign name, content chunks, tags, and file path
+
+### setup_local_llm.py
+- Downloads specified Llama models using Meta's official URLs
+- Configures vLLM server with optimal settings for RTX 4080
+- Sets up model switching capabilities and health monitoring
+- Implements graceful fallback to API services
+### parse_srd_to_db.py
+- Parses the SRD-OGL_V5.1.pdf file in your project folder
+- Extracts and structures D&D 5e rules data (spells, items, monsters, conditions)
+- Populates dedicated rules database tables for fast lookups during gameplay
+
+## Key Requirements
+- **Local-First Architecture**: Primary reliance on local Llama model with API fallbacks
+- **vLLM Integration**: Proper server management and GPU optimization for RTX 4080
+- **Model Flexibility**: Support for switching between different Llama model sizes
+- Modular code structure with clear separation of concerns
+- Async I/O for Discord and database operations
+- Comprehensive error handling for local model, API timeouts, and database issues
+- Environment variable security for all sensitive data
+- Detailed logging for local model performance, API fallbacks, and system events
+- No external paid APIs for primary functionality (APIs only as backups)
+- Complete self-contained D&D 5e rule implementation
+- RAG-based campaign content with dynamic retrieval
+- **Future Fine-tuning Support**: Architecture to support D&D-specific model training
+
+Design the optimal database schemas, JSON response formats, combat tracking systems, vLLM server management, and internal architecture based on these functional requirements.
