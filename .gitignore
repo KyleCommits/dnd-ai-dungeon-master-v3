@@ -109,6 +109,7 @@ llama_env_311/
 logs/
 *.log
 .env.*
+!.env.example
 .env.test
 .env.local
 llm_models/
@@ -126,6 +127,7 @@ requirements_backup.txt
 archive/
 .vscode/
 .pytest_cache/
+research_inspiration/
 
 # Config files with sensitive data
 src/config.py

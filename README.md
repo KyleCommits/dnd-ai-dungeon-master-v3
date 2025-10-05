@@ -1,122 +1,148 @@
-# d&d ai dungeon master
+# D&D AI Dungeon Master
 
-so this is my attempt at building an ai dungeon master that can actually run a proper d&d campaign. not just some basic chatbot that pretends to know the rules, but something that can handle character sheets, spell casting, combat, and all the mechanical stuff while still being creative with the story.
+An intelligent AI Dungeon Master system that runs complete D&D 5e campaigns with full mechanical support. Built to handle everything from character creation and spell casting to combat resolution and narrative storytelling.
 
-## what this thing does
+## Features
 
-- runs full d&d 5e campaigns with proper rule enforcement
-- generates detailed campaigns (like 7000+ lines of content)
-- handles character creation, leveling, spell management, animal companions
-- ai can directly modify your hp, apply conditions, roll dice, consume spell slots
-- tracks campaign state, npcs, plot threads, all that dm stuff
-- has a decent web interface that doesnt look like garbage
-- remembers what happened in previous sessions via summaries
+- **Complete D&D 5e Rules Engine**: Proper enforcement of character creation, spell slots, conditions, and combat mechanics
+- **Dynamic Campaign Generation**: Creates detailed, playable campaigns with 7000+ lines of content using multi-stage AI pipeline
+- **Character Management**: Full character sheet support including leveling, spell preparation, animal companions, and stat tracking
+- **AI-Driven Game Mechanics**: Gemini directly executes game actions (HP modification, spell casting, dice rolling, condition application)
+- **Campaign State Persistence**: Tracks NPCs, plot threads, relationships, and session history with automatic summaries
+- **Modern Web Interface**: Real-time React frontend with WebSocket-powered chat and professional D&D aesthetic
+- **Session Memory System**: Maintains continuity between sessions through conversation history and narrative summaries
 
-## tech stack
+## Technology Stack
 
-honestly this got way more complicated than i originally planned:
+**Frontend**: React + TypeScript with WebSocket real-time communication
+**Backend**: FastAPI with async request handling
+**Databases**: PostgreSQL (primary), SQLite (spell data)
+**AI Models**: Google Gemini 2.5 Flash-Lite (primary), Local Transformers (fallback)
+**D&D Data**: Official SRD API integration + custom campaign system
 
-**frontend**: react + typescript with websockets for real-time chat
-**backend**: fastapi with async everything
-**database**: postgresql for main stuff, sqlite for spells
-**ai models**: google gemini 2.5 flash-lite (primary), local transformers (backup)
-**d&d data**: official srd api integration for spells, custom campaign system
+## Installation
 
-## getting started
+### Prerequisites
+- Python 3.11+
+- PostgreSQL database server
+- Google Gemini API key
 
-you'll need python 3.11 and a gemini api key. also postgres running locally.
+### Setup
 
 ```bash
-# clone and setup
+# Clone the repository
 git clone [your-repo-url]
 cd dungeon_master_discord_bot_v3
 
-# virtual env (i use llama_env_311 but whatever)
+# Create virtual environment
 python -m venv llama_env_311
-llama_env_311\Scripts\activate  # windows
-source llama_env_311/bin/activate  # linux/mac
+llama_env_311\Scripts\activate  # Windows
+source llama_env_311/bin/activate  # Linux/macOS
 
-# install stuff
+# Install dependencies
 pip install -r requirements.txt
 
-# database setup
-# create a postgres db called 'dnd_bot_v3'
-# run the sql files in queries/ folder
+# Database setup
+# 1. Create PostgreSQL database: 'dnd_bot_v3'
+# 2. Run SQL initialization scripts from queries/ folder
 
-# config
+# Configuration
 cp src/config_template.py src/config.py
-# edit config.py with your api keys and database settings
+# Edit src/config.py with your API keys and database credentials
 
-# start the system
+# Start the system
 python start_web_system.py
 ```
 
-then go to http://localhost:3000 and http://localhost:8080 should be your api.
+Access the application:
+- Frontend UI: http://localhost:3000
+- Backend API: http://localhost:8080
 
-## project structure
+## Project Structure
 
 ```
-src/                    # main backend code
-  dynamic_dm.py         # the ai dm brain
-  game_actions.py       # ai function calling for mechanics
-  character_manager.py  # handles character sheets
-  spell_integration.py  # all 319 d&d spells
-  campaign_state_manager.py  # tracks story progression
+src/                           # Core backend logic
+  dynamic_dm.py                # AI Dungeon Master brain
+  game_actions.py              # AI function calling for game mechanics
+  character_manager.py         # Character sheet management
+  spell_integration.py         # 319 D&D 5e SRD spells
+  campaign_state_manager.py    # Story and NPC tracking
 
-web/                    # react frontend
-  src/components/       # ui components
+web/                           # React frontend
+  src/components/              # UI components
 
-dnd_src_material/       # campaign content
-  custom_campaigns/     # generated campaign files
+dnd_src_material/              # Campaign content
+  custom_campaigns/            # Generated campaign files
 
-tests/                  # test scripts
+tests/                         # Test scripts
 ```
 
-## how it works
+## How It Works
 
-the core idea is that gemini can actually execute game mechanics instead of just describing them. so when you take damage, the ai calls `modify_hp(character_id, -10, "goblin sword")` and your hp actually goes down. same with spell casting, conditions, dice rolls, etc.
+### AI Function Calling System
+Instead of just narrating events, the AI directly executes game mechanics. When you take damage, the system calls `modify_hp(character_id, -10, "goblin sword")` to update your actual HP. This applies to spell slots, conditions, dice rolls, and all other mechanical actions.
 
-campaigns are generated using a multi-stage pipeline: xai generates the outline, gemini fleshes it out, then local llm adds the final details. results in campaigns that are actually playable and not just random nonsense.
+### Campaign Generation Pipeline
+1. **XAI**: Generates campaign outline and structure
+2. **Gemini**: Expands outline into detailed narrative content
+3. **Local LLM**: Adds final polish and mechanical details
 
-the character system handles full d&d 5e mechanics including spell slots, prepared spells, animal companions, all ability scores, etc. spell system has all 319 srd spells with proper casting mechanics.
+Result: Fully playable campaigns with coherent plots, balanced encounters, and proper pacing.
 
-## current status
+### Character System
+Full D&D 5e implementation including:
+- All core classes and subclasses
+- Spell slot progression and preparation mechanics
+- Animal companion system (Beast Master Rangers)
+- Ability scores, proficiencies, and skill checks
+- Complete integration with AI narrative system
 
-this is an ongoing project that i work on when i have time. definitely still a work in progress but the core systems are solid:
+## Current Status
 
-- spell system: complete
-- character management: complete
-- ai function calling: complete
-- campaign generation: complete
-- session management: complete
-- web interface: functional but could be prettier
+**Completed Systems**:
+- Character management and creation
+- Spell system (all 319 SRD spells)
+- AI function calling for game mechanics
+- Campaign generation pipeline
+- Session persistence and summaries
+- Web interface with real-time chat
+- Dice rolling system with advantage/disadvantage
 
-## known issues
+**In Progress**:
+- Equipment and inventory integration
+- Advanced combat positioning mechanics
+- Multiplayer session support
 
-- sometimes the ai gets confused about whose turn it is
-- spell damage calculation could be more automated
-- equipment system exists but isnt fully integrated
-- no multiplayer support yet (single player only)
-- combat positioning is purely narrative (no battle map)
+## Known Limitations
 
-## testing
+- Single-player only (no multi-user sessions yet)
+- Combat positioning is narrative-based (no battle map grid)
+- Spell damage calculation requires manual confirmation in some cases
+- Equipment system exists but not fully integrated with character stats
+- Turn order tracking can occasionally need clarification
 
-there are test scripts in the tests/ folder for validating different systems:
+## Testing
+
+Run validation scripts to test system components:
 
 ```bash
-python tests/test_ai_function_calling.py    # test ai mechanics
-python tests/test_session_summaries.py      # test session storage
-python tests/test_spells.py                 # test spell system
+python tests/test_ai_function_calling.py    # AI mechanics validation
+python tests/test_session_summaries.py      # Session storage tests
+python tests/test_spells.py                 # Spell system validation
 ```
 
-## contributing
+## Contributing
 
-if you want to mess with this feel free to fork it. the code could definitely use some cleanup and there are tons of features that could be added. just try to follow the existing patterns and dont break the ai function calling system cause that took forever to get working.
+Contributions are welcome. When contributing:
+- Follow existing code patterns and architecture
+- Maintain compatibility with the AI function calling system
+- Add tests for new features
+- Update documentation as needed
 
-## license
+## License
 
-mit or whatever. just dont sell it as your own thing.
+MIT License - Free to use and modify. Please provide attribution if you use this project as a base for your own work.
 
 ---
 
-built because i wanted to play d&d but scheduling with humans is impossible.
+*Built to solve the eternal problem of D&D scheduling conflicts.*
