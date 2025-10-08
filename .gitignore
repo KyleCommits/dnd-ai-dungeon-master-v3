@@ -128,6 +128,7 @@ archive/
 .vscode/
 .pytest_cache/
 research_inspiration/
+prompts/
 
 # Config files with sensitive data
 src/config.py
