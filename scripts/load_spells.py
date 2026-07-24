@@ -1,35 +1,34 @@
 # load_spells.py
 """
-Utility script to load all D&D 5e spells from the API into the local database
+Utility script to load all D&D 5e spells from the API into the local database.
+This is the ONLY supported network path for spell data.
 """
 
 import asyncio
 import sys
 import os
 
-# add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+# add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.enhanced_spell_system import enhanced_spell_manager
+from src.enhanced_spell_system import SpellDataLoader, enhanced_spell_manager
+
 
 async def main():
-    """Load all spells from the D&D 5e API"""
-    print("Initializing enhanced spell system...")
-    print("This will fetch all 319+ spells from the D&D 5e API")
-    print("This process may take 2-5 minutes depending on network speed")
+    """Load all spells from the D&D 5e API into data/spells.db"""
+    print("Loading spells from D&D 5e API into local SQLite...")
+    print("This may take 2-5 minutes depending on network speed")
     print()
 
-    # see if user wants to continue
     response = input("Continue with spell loading? (y/n): ").lower()
     if response != 'y':
         print("Spell loading cancelled.")
         return
 
     try:
-        # init spell manager (loads spells if db empty)
-        enhanced_spell_manager.initialize()
+        loader = SpellDataLoader(allow_network=True)
+        loader.load_all_spells()
 
-        # get stats
         stats = enhanced_spell_manager.get_spell_statistics()
         print()
         print("SUCCESS: Spell system ready!")
@@ -41,20 +40,14 @@ async def main():
             print(f"  {level_name}: {count} spells")
 
         print()
-        print("Spells by school:")
-        for school, count in stats['spells_by_school'].items():
-            print(f"  {school.title()}: {count} spells")
-
-        # test some spells
-        print()
         print("Testing spell lookup:")
         test_spells = ["Fireball", "Magic Missile", "Cure Wounds", "Eldritch Blast"]
         for spell_name in test_spells:
             spell = enhanced_spell_manager.get_spell(spell_name)
             if spell:
-                print(f"  ✓ {spell.name} (Level {spell.level} {spell.school.title()})")
+                print(f"  [OK] {spell.name} (Level {spell.level} {spell.school})")
             else:
-                print(f"  ✗ {spell_name} not found")
+                print(f"  [MISSING] {spell_name} not found")
 
     except Exception as e:
         print(f"ERROR: Failed to load spells: {e}")

@@ -29,6 +29,10 @@ class Character(Base):
     is_unconscious = Column(Boolean, default=False)
     is_stable = Column(Boolean, default=False)
 
+    # persisted resource / status tracking (JSON text)
+    spell_slots_used = Column(Text, default="{}")  # {"1": 1, "2": 0, ...} used counts by slot level
+    conditions_json = Column(Text, default="[]")  # [{"name": "poisoned", "duration_rounds": 3}, ...]
+
     # status info
     is_active = Column(Boolean, default=True)
     is_alive = Column(Boolean, default=True)

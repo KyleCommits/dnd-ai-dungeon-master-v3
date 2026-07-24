@@ -1,4 +1,10 @@
 # src/campaign_generation/campaign_orchestrator.py
+"""
+Campaign Generator layer (web).
+
+Responsibility: multi-stage campaign content generation, then hand off to
+campaign_manager.create_and_index_campaign for persist+index. Not play state.
+"""
 import asyncio
 import logging
 import time

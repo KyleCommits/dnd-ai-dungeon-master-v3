@@ -396,5 +396,12 @@ class CharacterManager:
         """Learn a new spell for a character"""
         return await character_spell_manager.learn_spell(db, character_id, spell_name)
 
+    async def character_rest(self, db: AsyncSession, character_id: int, rest_type: str = "long") -> Dict[str, Any]:
+        """Handle short/long rest (HP + spell slot recovery)"""
+        return await character_spell_manager.character_rest(db, character_id, rest_type)
+
+    async def prepare_spell(self, db: AsyncSession, character_id: int, spell_name: str, prepare: bool = True) -> Dict[str, Any]:
+        return await character_spell_manager.prepare_spell(db, character_id, spell_name, prepare)
+
 # the main character manager
 character_manager = CharacterManager()

@@ -127,6 +127,60 @@ class DynamicDM:
                     },
                     "required": ["character_id"]
                 }
+            },
+            {
+                "name": "trigger_rest",
+                "description": "trigger a short or long rest for a character (restores HP/slots)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "character_id": {"type": "string", "description": "character resting"},
+                        "rest_type": {"type": "string", "enum": ["short", "long"], "description": "type of rest"},
+                        "reason": {"type": "string", "description": "why they are resting"}
+                    },
+                    "required": ["character_id", "rest_type"]
+                }
+            },
+            {
+                "name": "update_inventory",
+                "description": "add or remove items from character inventory",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "character_id": {"type": "string"},
+                        "item": {"type": "string", "description": "item name"},
+                        "quantity": {"type": "integer", "description": "positive to add, negative to remove"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["character_id", "item"]
+                }
+            },
+            {
+                "name": "equip_item",
+                "description": "equip an item from inventory and recalculate AC",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "character_id": {"type": "string"},
+                        "item": {"type": "string"},
+                        "equipped": {"type": "boolean", "description": "true to equip, false to unequip"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["character_id", "item"]
+                }
+            },
+            {
+                "name": "unequip_item",
+                "description": "unequip an item and recalculate AC",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "character_id": {"type": "string"},
+                        "item": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["character_id", "item"]
+                }
             }
         ]
 
@@ -219,6 +273,8 @@ FUNCTION CALLING INSTRUCTIONS:
 - Use roll_dice_for_character() for attack rolls, damage rolls, saving throws
 - Use apply_condition() when characters get status effects
 - Use consume_spell_slot() when characters cast spells
+- Use trigger_rest() for short/long rests
+- Use update_inventory() / equip_item() / unequip_item() for gear
 - Use get_character_status() to check character stats
 - Always include the actual function results in your response naturally
 - Example: "The goblin swings and hits! *rolls damage* You take 6 slashing damage."

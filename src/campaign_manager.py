@@ -1,4 +1,11 @@
 # src/campaign_manager.py
+"""
+Campaign Persist + Index layer.
+
+Responsibility: save generated campaign markdown to disk, register rows in the
+campaigns table, and build RAG vector indexes. Not runtime play state.
+Generation belongs to CampaignOrchestrator; play state belongs to campaign_state_manager.
+"""
 import logging
 import os
 import re

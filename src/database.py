@@ -3,7 +3,7 @@ import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, selectinload
 from sqlalchemy.future import select
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 from .config import settings
 from .models import Campaign, ChatSession, ChatMessage, SessionSummary, Base
 from .character_models import (
@@ -178,6 +178,13 @@ async def create_tables():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # additive columns for existing deployments (create_all does not alter)
+            await conn.execute(text(
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS spell_slots_used TEXT DEFAULT '{}'"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS conditions_json TEXT DEFAULT '[]'"
+            ))
         logging.info("Successfully created all database tables.")
         return True
     except Exception as e:

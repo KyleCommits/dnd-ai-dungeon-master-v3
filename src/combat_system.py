@@ -307,19 +307,29 @@ class CombatManager:
         return combatant
 
     def add_monster_to_combat(self, encounter_id: str, monster_data: Dict[str, Any]) -> Optional[Combatant]:
-        """Add a monster to combat"""
+        """Add a monster to combat. Accepts catalog name via monster_data['name'] or full stats."""
+        from .monster_catalog import resolve_monster_data
+
         encounter = self.get_encounter(encounter_id)
         if not encounter:
             return None
 
+        try:
+            resolved = resolve_monster_data(monster_data)
+        except ValueError:
+            # fallback: require classic dict shape
+            if not all(k in monster_data for k in ("name", "hp", "ac")):
+                return None
+            resolved = monster_data
+
         combatant = Combatant(
-            id=f"monster_{monster_data['name']}_{int(time.time())}",
-            name=monster_data['name'],
+            id=f"monster_{resolved['name']}_{int(time.time())}",
+            name=resolved['name'],
             combatant_type=CombatantType.MONSTER,
-            max_hp=monster_data['hp'],
-            current_hp=monster_data['hp'],
-            ac=monster_data['ac'],
-            initiative_modifier=monster_data.get('dexterity_modifier', 0)
+            max_hp=resolved['hp'],
+            current_hp=resolved['hp'],
+            ac=resolved['ac'],
+            initiative_modifier=resolved.get('dexterity_modifier', 0)
         )
 
         encounter.add_combatant(combatant)

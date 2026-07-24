@@ -56,88 +56,39 @@ class ConditionRequest(BaseModel):
 # Spell Management Endpoints
 
 @router.get("/api/characters/{character_id}/spells")
-async def get_character_spells(character_id: int, db: AsyncSession = Depends(get_db_session)):
-    """Get character's known/prepared spells and spell slots"""
-    character = await character_manager.get_character_full(db, character_id)
-    if not character:
+async def get_character_spells_enhanced(character_id: int, db: AsyncSession = Depends(get_db_session)):
+    """Get character spells via enhanced local DB (not legacy spell_system content)."""
+    from .enhanced_spell_system import enhanced_spell_manager
+
+    try:
+        enhanced_spell_manager.initialize()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    spell_data = await character_manager.get_character_spells(db, character_id)
+    if not spell_data:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    # Get class spell list
-    class_spells = spell_manager.list_manager.get_class_spells(character.class_name, 9)
-
-    # Get spell slots
-    slot_manager = SpellSlotManager()
-    caster_types = {
-        "Bard": "full", "Cleric": "full", "Druid": "full", "Sorcerer": "full", "Wizard": "full",
-        "Paladin": "half", "Ranger": "half", "Warlock": "warlock"
-    }
-    caster_type = caster_types.get(character.class_name, "none")
-
-    if caster_type != "none":
-        spell_slots = slot_manager.get_spell_slots(caster_type, character.level)
-    else:
-        spell_slots = [0] * 9
-
-    # Get known spells from database
-    known_spells = []
-    for spell_obj in character.spells:
-        spell_data = spell_manager.get_spell(spell_obj.spell_name)
-        if spell_data:
-            known_spells.append({
-                "name": spell_data.name,
-                "level": spell_data.level,
-                "school": spell_data.school.value,
-                "casting_time": spell_data.casting_time.value,
-                "range": spell_data.range.value,
-                "components": spell_data.components,
-                "duration": spell_data.duration,
-                "description": spell_data.description,
-                "prepared": spell_obj.prepared,
-                "uses_remaining": spell_obj.uses_today
-            })
-
+    class_spells = enhanced_spell_manager.get_class_spells(spell_data.get("class_name", ""), 9)
     return {
-        "character_name": character.name,
-        "class_name": character.class_name,
-        "level": character.level,
-        "spellcasting_ability": "Intelligence" if character.class_name == "Wizard" else "Wisdom" if character.class_name in ["Cleric", "Druid"] else "Charisma",
-        "spell_slots": {
-            f"level_{i+1}": slots for i, slots in enumerate(spell_slots) if slots > 0
-        },
-        "known_spells": known_spells,
-        "available_spells": class_spells[:20]  # Limit for response size
+        "character_name": spell_data.get("character_name"),
+        "class_name": spell_data.get("class_name"),
+        "level": spell_data.get("level"),
+        "is_spellcaster": spell_data.get("is_spellcaster"),
+        "spell_slots": spell_data.get("spell_slots"),
+        "spell_slots_max": spell_data.get("spell_slots_max"),
+        "available_spells": [s.name for s in class_spells[:20]],
     }
 
 @router.post("/api/characters/{character_id}/cast-spell")
-async def cast_spell(character_id: int, request: SpellCastRequest, db: AsyncSession = Depends(get_db_session)):
-    """Cast a spell with the character"""
-    character = await character_manager.get_character_full(db, character_id)
-    if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
-
-    spell = spell_manager.get_spell(request.spell_name)
-    if not spell:
-        raise HTTPException(status_code=404, detail="Spell not found")
-
-    # Check if character knows the spell
-    character_spell = next((s for s in character.spells if s.spell_name == request.spell_name), None)
-    if not character_spell:
-        raise HTTPException(status_code=400, detail="Character doesn't know this spell")
-
-    # Calculate spell effects
-    ability_mod = 0  # Would get from character's abilities
-    spell_effects = spell_manager.calculate_spell_damage(
-        spell, character.level, request.spell_level, ability_mod
+async def cast_spell_enhanced(character_id: int, request: SpellCastRequest, db: AsyncSession = Depends(get_db_session)):
+    """Cast a spell via character_manager / enhanced integration."""
+    result = await character_manager.cast_spell(
+        db, character_id, request.spell_name, request.spell_level
     )
-
-    return {
-        "spell_cast": spell.name,
-        "caster": character.name,
-        "spell_level": request.spell_level,
-        "effects": spell_effects,
-        "targets": request.target_ids or [],
-        "success": True
-    }
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Cast failed"))
+    return result
 
 # Equipment Management Endpoints
 
@@ -331,6 +282,28 @@ async def start_combat(campaign_id: int, encounter_name: str):
         "turn": encounter.current_turn
     }
 
+@router.post("/api/combat/{encounter_id}/add-monster")
+async def add_monster_to_combat(encounter_id: str, monster_name: str):
+    """Add a catalog monster (or name+stats) to an encounter by SRD seed name."""
+    from .monster_catalog import get_monster
+
+    monster = get_monster(monster_name)
+    if not monster:
+        raise HTTPException(status_code=404, detail=f"Unknown monster: {monster_name}")
+
+    combatant = combat_manager.add_monster_to_combat(encounter_id, monster)
+    if not combatant:
+        raise HTTPException(status_code=404, detail="Combat encounter not found")
+
+    return {
+        "success": True,
+        "combatant_name": combatant.name,
+        "hp": combatant.max_hp,
+        "ac": combatant.ac,
+        "initiative": combatant.initiative,
+    }
+
+
 @router.post("/api/combat/{encounter_id}/add-character")
 async def add_character_to_combat(encounter_id: str, character_id: int, db: AsyncSession = Depends(get_db_session)):
     """Add a character to combat"""
@@ -451,32 +424,36 @@ async def next_turn(encounter_id: str):
 
 @router.get("/api/spells/search")
 async def search_spells(level: Optional[int] = None, school: Optional[str] = None, class_name: Optional[str] = None):
-    """Search for spells by criteria"""
-    search_params = {}
+    """Search for spells by criteria (local enhanced spell DB only)."""
+    from .enhanced_spell_system import enhanced_spell_manager
+
+    try:
+        enhanced_spell_manager.initialize()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    search_params: Dict[str, Any] = {}
     if level is not None:
         search_params["level"] = level
     if school:
-        from .spell_system import SpellSchool
-        try:
-            search_params["school"] = SpellSchool(school.upper())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid spell school")
+        search_params["school"] = school
     if class_name:
         search_params["class_name"] = class_name
 
-    spells = spell_manager.search_spells(**search_params)
+    spells = enhanced_spell_manager.search_spells(**search_params)
 
     return {
         "spells": [
             {
                 "name": spell.name,
                 "level": spell.level,
-                "school": spell.school.value,
-                "casting_time": spell.casting_time.value,
-                "range": spell.range.value,
+                "school": spell.school if isinstance(spell.school, str) else getattr(spell.school, "value", str(spell.school)),
+                "casting_time": spell.casting_time,
+                "range": spell.range,
                 "duration": spell.duration,
-                "description": spell.description
-            } for spell in spells
+                "description": spell.description if isinstance(spell.description, str) else " ".join(spell.description or []),
+            }
+            for spell in spells
         ]
     }
 

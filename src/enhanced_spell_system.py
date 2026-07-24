@@ -70,11 +70,20 @@ class EnhancedSpell:
     heal_at_slot_level: Dict[int, str] = field(default_factory=dict)
 
 class SpellDataFetcher:
-    """grabs spell data from the dnd api"""
+    """One-time offline loader helper: fetches spell data from the dnd5e API.
+
+    Do not call from gameplay. Use only via scripts/load_spells.py or
+    `python -m src.enhanced_spell_system load`.
+    """
 
     BASE_URL = "https://www.dnd5eapi.co/api"
 
-    def __init__(self):
+    def __init__(self, allow_network: bool = False):
+        if not allow_network:
+            raise RuntimeError(
+                "SpellDataFetcher is disabled during gameplay. "
+                "Use scripts/load_spells.py to populate data/spells.db."
+            )
         self.session = requests.Session()
         self.rate_limit_delay = 0.1  # 100ms between requests
 
@@ -324,10 +333,10 @@ class SpellDatabase:
         )
 
 class SpellDataLoader:
-    """loads spell data from api into our database"""
+    """loads spell data from api into our database (offline seed scripts only)"""
 
-    def __init__(self):
-        self.fetcher = SpellDataFetcher()
+    def __init__(self, allow_network: bool = False):
+        self.fetcher = SpellDataFetcher(allow_network=allow_network)
         self.database = SpellDatabase()
 
     def load_all_spells(self):
@@ -445,20 +454,26 @@ class SpellDataLoader:
         )
 
 class EnhancedSpellManager:
-    """enhanced spell manager with full database integration"""
+    """enhanced spell manager with full database integration.
+
+    Runtime source of truth is local SQLite (data/spells.db). Never fetches
+    from the network during gameplay.
+    """
 
     def __init__(self):
         self.database = SpellDatabase()
-        self.loader = SpellDataLoader()
+        # Loader is only constructed when explicitly seeding via load scripts.
+        self.loader = None
 
     def initialize(self):
-        """setup the spell system - run this once"""
+        """Verify local spell DB is ready. Does not call the network."""
         spell_count = self.database.get_spell_count()
         if spell_count == 0:
-            print("No spells found in database. Loading from API...")
-            self.loader.load_all_spells()
-        else:
-            print(f"Spell system initialized with {spell_count} spells")
+            raise RuntimeError(
+                "Spell database is empty (data/spells.db). "
+                "Run: python scripts/load_spells.py  (or: python -m src.enhanced_spell_system load)"
+            )
+        print(f"Spell system initialized with {spell_count} spells")
 
     def get_spell(self, name: str) -> Optional[EnhancedSpell]:
         """find a spell by name"""
@@ -508,7 +523,7 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1 and sys.argv[1] == "load":
         print("Loading spell data from D&D 5e API...")
-        loader = SpellDataLoader()
+        loader = SpellDataLoader(allow_network=True)
         loader.load_all_spells()
     else:
         # test the system

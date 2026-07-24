@@ -1,7 +1,16 @@
 # src/spell_system.py
 """
-Comprehensive D&D 5e Spell System
-Handles spell lists, spell slots, preparation, and casting mechanics
+LEGACY / PARTIAL — D&D 5e Spell System
+
+DEPRECATED for spell *content*:
+  - SpellDatabase.SPELLS and SpellListManager are frozen legacy dictionaries.
+  - Spell content lookups MUST use src.enhanced_spell_system (data/spells.db).
+
+STILL IN USE:
+  - SpellSlotManager (slot progression tables for full/half/third/warlock casters).
+  - Enums (SpellSchool, etc.) may still be imported by older modules.
+
+Do not add new spell entries here. Prefer extracting SpellSlotManager later.
 """
 
 from dataclasses import dataclass
@@ -64,7 +73,7 @@ class Spell:
     material_component: Optional[str] = None
 
 class SpellDatabase:
-    """Database of all D&D 5e spells"""
+    """DEPRECATED legacy in-memory spell dict. Use enhanced_spell_system instead."""
 
     SPELLS = {
         # Cantrips (Level 0)
@@ -378,7 +387,7 @@ class SpellSlotManager:
             return [0] * 9
 
 class SpellListManager:
-    """Manages spell lists for different classes"""
+    """DEPRECATED legacy class spell lists. Use enhanced_spell_system instead."""
 
     CLASS_SPELL_LISTS = {
         "Bard": [

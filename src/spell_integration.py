@@ -5,6 +5,7 @@ Connects the enhanced spell system with character management and game systems
 """
 
 from typing import List, Dict, Optional, Any
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
@@ -46,6 +47,107 @@ class CharacterSpellManager:
             "Eldritch Knight": "intelligence",
             "Arcane Trickster": "intelligence"
         }
+
+    def _parse_slots_used(self, character: Character) -> Dict[str, int]:
+        raw = getattr(character, "spell_slots_used", None) or "{}"
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return {str(k): int(v) for k, v in data.items()}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return {}
+
+    def _save_slots_used(self, character: Character, used: Dict[str, int]) -> None:
+        character.spell_slots_used = json.dumps({str(k): int(v) for k, v in used.items()})
+
+    def build_slot_state(self, character: Character) -> Dict[str, Any]:
+        """Return max slots, used counts, and remaining list for UI/AI."""
+        caster_type = self.caster_types.get(character.class_name, "none")
+        max_slots = (
+            self.slot_manager.get_spell_slots(caster_type, character.level)
+            if caster_type != "none"
+            else []
+        )
+        used_map = self._parse_slots_used(character)
+        remaining = []
+        used_list = []
+        for idx, max_count in enumerate(max_slots):
+            level = idx + 1
+            used = int(used_map.get(str(level), 0))
+            used_list.append(used)
+            remaining.append(max(0, max_count - used))
+        return {
+            "spell_slots_max": max_slots,
+            "spell_slots_used": used_list,
+            "spell_slots": remaining,
+            "slots_used_map": used_map,
+        }
+
+    async def consume_spell_slot(self, db: AsyncSession, character_id: int, slot_level: int) -> Dict[str, Any]:
+        """Persist consumption of one spell slot at the given level."""
+        if slot_level < 1:
+            return {"success": False, "error": "cantrips do not consume spell slots"}
+
+        result = await db.execute(select(Character).where(Character.id == character_id))
+        character = result.scalar_one_or_none()
+        if not character:
+            return {"success": False, "error": "character not found"}
+
+        caster_type = self.caster_types.get(character.class_name)
+        if not caster_type:
+            return {"success": False, "error": "character is not a spellcaster"}
+
+        max_slots = self.slot_manager.get_spell_slots(caster_type, character.level)
+        if slot_level > len(max_slots):
+            return {"success": False, "error": f"no level {slot_level} slots for this character"}
+
+        available = max_slots[slot_level - 1]
+        used_map = self._parse_slots_used(character)
+        used = int(used_map.get(str(slot_level), 0))
+        remaining = available - used
+        if remaining <= 0:
+            return {"success": False, "error": f"no level {slot_level} spell slots remaining"}
+
+        used_map[str(slot_level)] = used + 1
+        self._save_slots_used(character, used_map)
+        await db.commit()
+
+        return {
+            "success": True,
+            "slot_level": slot_level,
+            "remaining_slots": remaining - 1,
+            "total_slots": available,
+            "message": f"consumed level {slot_level} spell slot ({remaining - 1}/{available} remaining)",
+        }
+
+    async def restore_spell_slots(self, db: AsyncSession, character: Character, rest_type: str = "long") -> bool:
+        """Reset used spell slots for a rest. Returns True if slots were restored."""
+        caster_type = self.caster_types.get(character.class_name)
+        if not caster_type:
+            return False
+
+        if rest_type == "short" and character.class_name != "Warlock":
+            return False
+
+        self._save_slots_used(character, {})
+        return True
+
+    async def get_character_spell_info(self, db: AsyncSession, character_id: int) -> Dict[str, Any]:
+        """Alias used by GameActions — returns slot dict in AI-friendly form."""
+        spell_data = await self.get_character_spells(db, character_id)
+        if not spell_data:
+            return {}
+        max_slots = spell_data.get("spell_slots_max") or []
+        used_list = spell_data.get("spell_slots_used") or []
+        slot_dict = {}
+        for idx, max_count in enumerate(max_slots):
+            level = idx + 1
+            used = used_list[idx] if idx < len(used_list) else 0
+            slot_dict[f"level_{level}_slots"] = max_count
+            slot_dict[f"level_{level}_used"] = used
+        spell_data["spell_slots"] = slot_dict
+        return spell_data
 
     async def initialize_character_spells(self, db: AsyncSession, character: Character):
         """Initialize spell list for a new character based on their class"""
@@ -200,9 +302,9 @@ class CharacterSpellManager:
                     }
                     spells_by_level[level].append(spell_info)
 
-            # check spell slots
-            caster_type = self.caster_types.get(character.class_name, "none")
-            spell_slots = self.slot_manager.get_spell_slots(caster_type, character.level)
+            # check spell slots (remaining for UI)
+            slot_state = self.build_slot_state(character)
+            spell_slots = slot_state["spell_slots"]
 
             # figure out spell modifier
             spellcasting_ability = self.spellcasting_abilities.get(character.class_name)
@@ -231,6 +333,8 @@ class CharacterSpellManager:
                 "spell_save_dc": spell_save_dc,
                 "spell_attack_bonus": spell_attack_bonus,
                 "spell_slots": spell_slots,
+                "spell_slots_max": slot_state["spell_slots_max"],
+                "spell_slots_used": slot_state["spell_slots_used"],
                 "spells_by_level": spells_by_level,
                 "total_spells": len(character_spells)
             }
@@ -267,11 +371,13 @@ class CharacterSpellManager:
         if slot_level < enhanced_spell.level:
             return {"success": False, "error": f"Cannot cast level {enhanced_spell.level} spell with level {slot_level} slot"}
 
-        # TODO: Check if character has available spell slots
-        # This would require tracking current spell slots in character data
-
-        # For now, just proceed with casting (spell slot tracking would need to be implemented)
-        await db.commit()
+        # Consume slot for leveled spells only
+        if enhanced_spell.level > 0:
+            consume = await self.consume_spell_slot(db, character_id, slot_level)
+            if not consume.get("success"):
+                return consume
+        else:
+            await db.commit()
 
         # Calculate damage/healing if applicable
         spell_result = self._calculate_spell_effects(enhanced_spell, slot_level)
@@ -280,7 +386,7 @@ class CharacterSpellManager:
             "success": True,
             "spell": enhanced_spell,
             "slot_level_used": slot_level,
-            "times_cast_today": 1,  # Would need proper tracking
+            "times_cast_today": 1,
             "spell_effects": spell_result
         }
 
@@ -458,14 +564,18 @@ class CharacterSpellManager:
             # Spell Slot Recovery
             caster_type = self.caster_types.get(character.class_name)
             if caster_type:
-                if rest_type == "short" and character.class_name == "Warlock":
-                    # Warlocks recover spell slots on short rest
-                    recovery_info.append("Warlock spell slots recovered")
-                elif rest_type == "long":
-                    # All casters recover spell slots on long rest
-                    recovery_info.append("All spell slots recovered")
+                restored = await self.restore_spell_slots(db, character, rest_type)
+                if restored:
+                    if rest_type == "short" and character.class_name == "Warlock":
+                        recovery_info.append("Warlock spell slots recovered")
+                    elif rest_type == "long":
+                        recovery_info.append("All spell slots recovered")
 
-                # Note: Actual spell slot tracking would be implemented in the spell slot system
+            # Clear death saves on long rest
+            if rest_type == "long":
+                character.death_save_successes = 0
+                character.death_save_failures = 0
+                character.is_stable = False
 
             await db.commit()
 

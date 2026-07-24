@@ -41,6 +41,7 @@ from src.level_progression import progression_manager
 from src.animal_companion_manager import AnimalCompanionManager
 from src.animal_companion_models import CompanionTemplate, AnimalCompanion
 from web.campaign_routes import campaign_router
+from src.enhanced_character_api import router as enhanced_character_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,12 +58,12 @@ app.add_middleware(
 
 app.include_router(campaign_router)
 app.include_router(character_creation_router)
+app.include_router(enhanced_character_router)
 
 if os.path.exists("web/build"):
     app.mount("/static", StaticFiles(directory="web/build"), name="static")
 
 dynamic_dm = DynamicDM()
-campaign_manager = campaign_state_manager
 
 @app.on_event("startup")
 async def startup_event():
@@ -130,9 +131,9 @@ async def get_system_status(db: AsyncSession = Depends(get_db_session)):
     campaign_info = None
     campaign_name = None
     campaign_id = None
-    if campaign_manager.current_state:
-        campaign_name = campaign_manager.current_state.campaign_name
-        state = campaign_manager.current_state
+    if campaign_state_manager.current_state:
+        campaign_name = campaign_state_manager.current_state.campaign_name
+        state = campaign_state_manager.current_state
         if state:
             # grab campaign id from db
             campaign = await get_campaign_by_name(db, campaign_name)
@@ -155,9 +156,9 @@ async def get_system_status(db: AsyncSession = Depends(get_db_session)):
 
 @app.post("/api/load_campaign/{campaign_name}")
 async def load_campaign(campaign_name: str):
-    success = await campaign_manager.load_campaign(campaign_name)
+    success = await campaign_state_manager.load_campaign(campaign_name)
     if success:
-        campaign_state = campaign_manager.current_state
+        campaign_state = campaign_state_manager.current_state
         status_message = {
             "type": "system",
             "message": f"Campaign loaded: {campaign_name}. Remember to click 'Start New Session' to begin a fresh session with recap!",
@@ -180,7 +181,7 @@ async def clear_campaign():
     """Clear the currently loaded campaign"""
     print("DEBUG: clearing campaign")
     try:
-        campaign_manager.current_state = None
+        campaign_state_manager.current_state = None
         status_message = {
             "type": "system",
             "message": "Campaign cleared successfully",
@@ -196,10 +197,10 @@ async def clear_campaign():
 
 @app.post("/api/sessions/start_new")
 async def start_new_session(db: AsyncSession = Depends(get_db_session)):
-    if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+    if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
         raise HTTPException(status_code=400, detail="No campaign loaded")
 
-    campaign_name = campaign_manager.current_state.campaign_name
+    campaign_name = campaign_state_manager.current_state.campaign_name
     campaign = await get_campaign_by_name(db, campaign_name)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -289,10 +290,10 @@ async def get_current_campaign_summaries(db: AsyncSession = Depends(get_db_sessi
     """Get session summaries for the currently loaded campaign"""
     print("DEBUG: getting summaries for current campaign")
     try:
-        if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+        if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
             raise HTTPException(status_code=400, detail="No campaign currently loaded")
 
-        campaign_name = campaign_manager.current_state.campaign_name
+        campaign_name = campaign_state_manager.current_state.campaign_name
         campaign = await get_campaign_by_name(db, campaign_name)
         if not campaign:
             raise HTTPException(status_code=404, detail="Current campaign not found in database")
@@ -376,13 +377,13 @@ async def roll_skill(request: SkillRollRequest, user_id: str = "player1", db: As
         print(f"DEBUG: Skill roll request - skill: {request.skill}, advantage: {request.advantage}, user_id: {user_id}")
 
         # get active character
-        print(f"DEBUG: Campaign manager current state: {campaign_manager.current_state}")
-        if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+        print(f"DEBUG: Campaign manager current state: {campaign_state_manager.current_state}")
+        if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
             print("DEBUG: No active campaign")
             raise HTTPException(status_code=400, detail="No active campaign")
 
-        print(f"DEBUG: Looking for campaign: {campaign_manager.current_state.campaign_name}")
-        campaign = await get_campaign_by_name(db, campaign_manager.current_state.campaign_name)
+        print(f"DEBUG: Looking for campaign: {campaign_state_manager.current_state.campaign_name}")
+        campaign = await get_campaign_by_name(db, campaign_state_manager.current_state.campaign_name)
         if not campaign:
             print("DEBUG: Campaign not found in database")
             raise HTTPException(status_code=404, detail="Campaign not found")
@@ -432,8 +433,8 @@ async def roll_ability(request: AbilityRollRequest, user_id: str = "player1", db
         # get active char or use fake stats
         active_character = None
         try:
-            if campaign_manager.current_state and campaign_manager.current_state.campaign_name:
-                campaign = await get_campaign_by_name(db, campaign_manager.current_state.campaign_name)
+            if campaign_state_manager.current_state and campaign_state_manager.current_state.campaign_name:
+                campaign = await get_campaign_by_name(db, campaign_state_manager.current_state.campaign_name)
                 if campaign:
                     active_character = await character_manager.get_active_character(db, user_id, campaign.id)
         except Exception as e:
@@ -549,10 +550,10 @@ async def list_user_characters(user_id: str = "player1", campaign_id: Optional[i
     """Get all characters for a user in a specific campaign."""
     if not campaign_id:
         # get current campaign
-        if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+        if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
             raise HTTPException(status_code=400, detail="No active campaign")
 
-        campaign = await get_campaign_by_name(db, campaign_manager.current_state.campaign_name)
+        campaign = await get_campaign_by_name(db, campaign_state_manager.current_state.campaign_name)
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
         campaign_id = campaign.id
@@ -754,10 +755,10 @@ async def set_active_character(character_id: int, user_id: str = "player1", db: 
 async def get_active_character(user_id: str = "player1", campaign_id: Optional[int] = None, db: AsyncSession = Depends(get_db_session)):
     """Get the user's currently active character."""
     if not campaign_id:
-        if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+        if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
             raise HTTPException(status_code=400, detail="No active campaign")
 
-        campaign = await get_campaign_by_name(db, campaign_manager.current_state.campaign_name)
+        campaign = await get_campaign_by_name(db, campaign_state_manager.current_state.campaign_name)
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
         campaign_id = campaign.id
@@ -1029,10 +1030,10 @@ async def roll_skill_with_character(request: SkillRollRequest, user_id: str = "p
     """Roll a skill check using the active character's stats."""
     try:
         # get active character
-        if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+        if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
             raise HTTPException(status_code=400, detail="No active campaign")
 
-        campaign = await get_campaign_by_name(db, campaign_manager.current_state.campaign_name)
+        campaign = await get_campaign_by_name(db, campaign_state_manager.current_state.campaign_name)
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
 
@@ -1626,11 +1627,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, db: AsyncSessio
                 user_message = message_data.get("message", "")
                 print(f"DEBUG: processing chat message: {user_message}")
 
-                if not campaign_manager.current_state or not campaign_manager.current_state.campaign_name:
+                if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
                     print("DEBUG: no campaign state, skipping")
                     continue
 
-                campaign_name = campaign_manager.current_state.campaign_name
+                campaign_name = campaign_state_manager.current_state.campaign_name
                 print(f"DEBUG: using campaign: {campaign_name}")
                 campaign = await get_campaign_by_name(db, campaign_name)
                 if not campaign:

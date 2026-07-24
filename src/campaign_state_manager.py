@@ -1,4 +1,11 @@
 # src/campaign_state_manager.py
+"""
+Campaign PlayState layer.
+
+Responsibility: load a campaign for play, track act/location/NPCs/plot threads
+in sidecar state, and supply DynamicDM context. Not generation or disk/RAG indexing.
+Persist+index belongs to campaign_manager; generation belongs to CampaignOrchestrator.
+"""
 import json
 import logging
 import os
