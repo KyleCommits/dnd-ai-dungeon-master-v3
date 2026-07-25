@@ -79,10 +79,13 @@
         const body = msg.message || msg.content || JSON.stringify(msg);
         if (type === "system" || type === "session_change") {
           appendLog(`[system] ${body}`, "log-system");
-        } else if (type === "user") {
-          appendLog(`You: ${body}`, "log-user");
-        } else {
+        } else if (type === "user_message" || type === "user") {
+          // Already shown locally in sendChat; skip broadcast echo
+          return;
+        } else if (type === "dm_response" || type === "dm") {
           appendLog(`DM: ${body}`, "log-dm");
+        } else {
+          appendLog(`[${type}] ${body}`, "log-system");
         }
         if (msg.detail_frame) setDetail(msg.detail_frame);
       } catch (_) {

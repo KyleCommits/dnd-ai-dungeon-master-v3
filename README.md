@@ -1,53 +1,74 @@
 # D&D AI Dungeon Master
 
-Play D&D 5e without a human DM. The backend is the source of truth for rules and state; a local LLM narrates and drives the story through `TOOL_CALL` → GameActions.
+Play D&D 5e **without a human DM**. The backend is the source of truth for rules and state; a local LLM narrates and (increasingly) drives mechanics through `TOOL_CALL` → GameActions.
 
 ## Goal
 
 Sit down alone, play a long-running campaign, leave, and come back later with continuity (session summaries, NPC trust, plot/location memory).
 
-## What’s working (Phases 1–4)
+## Status (2026-07)
 
-| Phase | Status | What you get |
-|-------|--------|----------------|
-| 1 Stabilize core | Done | Chat → tools → game state → narration |
+### Phases
+
+| Phase | Status | Notes |
+|-------|--------|--------|
+| 1 Stabilize core | Done (MVP) | Chat → tools → state → narration path exists |
 | 2 Playable combat | Done (MVP) | Encounters, initiative, attacks/damage via GameActions |
-| 3 Rule integration | Done (MVP) | Offline `rules.db` (monsters/gear) + `spells.db`; `/monster`, `/gear`, lookups |
-| 4 Memory | Done (MVP) | Postgres world state, session summaries, Alembic, seed/reset scripts |
-| 5 Campaign system | Partial | Generators exist; structured arc tracking still uneven |
+| 3 Rule integration | Done (MVP) | Offline `rules.db` + `spells.db`; `/monster`, `/gear`, lookups |
+| 4 Memory | Done (MVP) | Postgres `campaign_world_state`, session summaries, Alembic, seeds |
+| 5 Campaign system | **On hold** | Generators exist; structured arcs deferred until play loop is trustworthy |
 
-### Features in practice
+### What works (playtested)
 
-- **ASCII terminal UI** at `http://localhost:8080/` (React wood UI archived under `web/frontend_legacy`)
-- **Local LLM** with `TOOL_CALL` / `END_TOOL_CALL` executed by `src/tool_executor.py`
-- **Characters**: creation, HP, spells, equipment AC, animal companions
-- **Combat**: turn-based encounters; catalog/DB monsters
-- **Rules data**: local MD/PDF → SQLite (`data/rules.db`); spells on `data/spells.db`
-- **Memory**: session summaries + `campaign_world_state` (NPC trust, plot threads, location)
-- **Campaign generation**: multi-stage pipeline (still separate from play-state unification)
+- **ASCII browser terminal** as primary UI (`python start_web_system.py` → `http://localhost:<port>/`)
+- **Local Llama** DM replies (e.g. Llama 3.1 8B 8-bit on RTX 4080 mobile 12GB)
+- **Campaign load** + **character select** (`/load`, `/chars`, `/active`, `/sheet`)
+- **Playtest sandbox**: seed PCs / NPCs+trust / monsters; reset DB / play data
+- **Offline rules**: MD/PDF → `data/rules.db` (~250 monsters, equipment tables)
+- **Memory plumbing**: session end summaries, world-state tools (trust, location, plot) wired
+- **Startup hardening**: prefers `llama_env_311`, `/api/health`, main-thread CUDA load, prompt truncation to avoid GPU OOM
+
+### Known gaps / TODOs (priority order)
+
+**Next (playtest polish — do before Phase 5):**
+
+1. **Tool compliance** — local LLM often narrates instead of calling tools (e.g. Fighter “casts fireball” should lookup/reject or require a caster)
+2. **Stronger grounding** — force `set_location` / world-state context so “where am I?” isn’t a generic tavern loop
+3. **Latency** — ~30–90s per reply on 4080 mobile + 8B is expected; shorter prompts / smaller or 4-bit model later
+
+**Later:**
+
+4. **Phase 5 campaign system** — structured arcs, `major_decisions`, generator → play-state seeding (held off)
+5. Campaign manager unification (`campaign_manager` vs `campaign_state_manager` vs generators)
+6. Enemy AI, concentration, opportunity attacks
+7. Multiplayer sessions; battle-map grid (intentionally narrative for now)
+
+### Performance note (local GPU)
+
+On an **Alienware-class laptop (e.g. i9, 32GB RAM, RTX 4080 mobile 12GB VRAM)**, local 8B chat is playable but not instant. VRAM limits model/context size; reply time is mostly GPU decode + how large the prompt is. Faster path later: smaller model, better quantization, or cloud DM (not current policy).
 
 ## Stack
 
-- **UI**: ASCII browser terminal (FastAPI static + WebSocket chat)
+- **UI**: ASCII terminal (FastAPI + WebSocket); React wood UI in `web/frontend_legacy` (deprecated)
 - **API**: FastAPI
-- **Postgres**: chat, characters, session summaries, world memory, RAG vectors
+- **Postgres**: chat, characters, summaries, world memory, RAG vectors
 - **SQLite**: `data/rules.db`, `data/spells.db`
-- **LLM**: local Transformers (primary for play); optional cloud keys for generation
+- **LLM**: local Transformers (play); optional cloud keys for campaign *generation* only
 - **Migrations**: Alembic
 
 ## Prerequisites
 
-- Python 3.11+ (use `llama_env_311`)
-- PostgreSQL with `vector` extension (for RAG)
-- Local model path / config as needed in `.env`
-- Optional: Gemini / xAI keys for campaign generation
+- Python **3.11** via `llama_env_311` (system Python 3.13 will break deps)
+- PostgreSQL + `vector` extension
+- Local Hugging Face model configured in `.env` (`LOCAL_MODEL_NAME` / path)
+- Optional: Gemini / xAI for campaign generation (not required for play)
 
 ## Quick start
 
 ```bash
-# Clone and venv
 git clone https://github.com/KyleCommits/dnd-ai-dungeon-master-v3.git
 cd dungeon_master_discord_bot_v3
+
 python -m venv llama_env_311
 llama_env_311\Scripts\activate          # Windows
 # source llama_env_311/bin/activate     # Linux/macOS
@@ -57,92 +78,88 @@ pip install -r requirements.txt
 
 ### 1. Configure `.env`
 
-Copy from [`.env.example`](.env.example). Minimum for play:
+Copy [`.env.example`](.env.example). Minimum for play:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://dnd:dnd_local@localhost:5432/dnd_bot_v3
-# Discord fields can be placeholders if you only use the web/ASCII UI
 DISCORD_TOKEN=unused
 BOT_CHANNEL_ID=0
 OWNER_ID=0
+LOCAL_MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
 ```
 
-Full Postgres wipe/recreate notes: [`scripts/LOCAL_DB_SETUP.md`](scripts/LOCAL_DB_SETUP.md).
+Postgres setup: [`scripts/LOCAL_DB_SETUP.md`](scripts/LOCAL_DB_SETUP.md).
 
-### 2. Fresh database + schema
+### 2. Database
 
 ```bash
-# Nuclear: drop/recreate DB, enable vector, alembic upgrade head
 python scripts/reset_local_db.py --yes
-
-# Or, if the DB already exists:
-alembic upgrade head
+# or: alembic upgrade head
 ```
 
-### 3. Offline rules (monsters / equipment)
+### 3. Offline rules
 
-Needs local files under `dnd_src_material/rules_and_supplements/` (gitignored).
+Needs `dnd_src_material/rules_and_supplements/` (local / gitignored).
 
 ```bash
 python scripts/load_rules_from_md.py --fresh
-# Lightweight combat set only:
+# or light combat set:
 python scripts/seed_test_monsters.py
 ```
 
-### 4. Playtest seed (PCs, NPCs + trust, monsters)
+### 4. Playtest seed
 
 ```bash
-# Soft wipe of play data + reseed (campaign name without .md)
-python scripts/seed_playtest.py --yes --reset --campaign <your_campaign>
-
-# Or piecemeal:
-python scripts/reset_play_data.py --yes --characters --npcs
-python scripts/seed_test_characters.py --campaign <your_campaign>
-python scripts/seed_test_npcs.py --campaign <your_campaign>
-python scripts/seed_test_monsters.py
+# Campaign name = filename without .md under custom_campaigns/
+python scripts/seed_playtest.py --yes --reset --campaign the_sirens_embrace_a_pirates_odyssey
 ```
 
-### 5. Run
+### 5. Run (ASCII UI)
 
 ```bash
+# Always use the venv. Prefer localhost, not 0.0.0.0, in the browser.
 python start_web_system.py
 ```
 
-Open **http://localhost:8080/**
+Open **http://localhost:8080/**  
 
-## Useful ASCII commands
+If port 8080 is stuck on Windows:
+
+```powershell
+$env:DND_PORT=8081
+python start_web_system.py
+# then http://localhost:8081/
+```
+
+`start_system.py` is the **legacy Discord** entrypoint (deprecated) — use `start_web_system.py`.
+
+Optional: `DND_UVICORN_RELOAD=1` for auto-reload (off by default).
+
+## Play loop (ASCII)
 
 ```
 /help
-/load <campaign>
-/status
-/chars
-/active Test Fighter
+/playtest                 # load default campaign + Test Fighter
 /sheet
 /npc Mayor Aldric
 /monster goblin
 /gear longsword
-/equip Chain Mail
-/session end          # summary + bump session_count
-/session start        # auto-summarizes prior open session if needed
+/session end
 /roll 1d20+5
 ```
 
-Bare text (no `/`) goes to the DM over WebSocket.
+Then type **normal text** (no `/`) to talk to the DM, e.g. `I look around the inn and greet Mira.`
 
-## Reset / seed command cheat sheet
+## Reset / seed cheat sheet
 
 | Command | Purpose |
 |---------|---------|
 | `python scripts/reset_local_db.py --yes` | Drop + recreate Postgres, migrate |
-| `python scripts/reset_play_data.py --yes` | Clear sessions/summaries/world state |
+| `python scripts/reset_play_data.py --yes` | Clear sessions / summaries / world state |
 | `python scripts/reset_play_data.py --yes --characters --npcs` | Also delete PCs and NPCs |
 | `alembic upgrade head` | Apply schema migrations |
-| `python scripts/load_rules_from_md.py --fresh` | Rebuild `data/rules.db` from local MD/PDF |
-| `python scripts/seed_test_monsters.py` | Upsert goblin/wolf/orc/skeleton |
-| `python scripts/seed_test_characters.py` | Test Fighter / Wizard / Cleric |
-| `python scripts/seed_test_npcs.py` | Test NPCs + trust in world state |
-| `python scripts/seed_playtest.py --yes --reset` | One-shot sandbox + printed cheat sheet |
+| `python scripts/load_rules_from_md.py --fresh` | Rebuild `data/rules.db` |
+| `python scripts/seed_playtest.py --yes --reset --campaign <name>` | Full sandbox + cheat sheet |
 
 Destructive scripts require `--yes`.
 
@@ -153,54 +170,33 @@ src/
   dynamic_dm.py              # DM brain + tool schemas
   tool_executor.py           # TOOL_CALL execution
   game_actions.py            # Mechanics + memory tools
-  combat_system.py           # Encounters / attacks
-  rules_db.py                # Offline monsters + equipment
-  monster_catalog.py         # rules.db → combat stats
-  campaign_state_manager.py  # World memory facade (Postgres)
-  world_state_store.py       # campaign_world_state persistence
-  ascii_ui/                  # Terminal command handlers + frames
+  combat_system.py
+  rules_db.py / monster_catalog.py
+  campaign_state_manager.py  # Play-state facade
+  world_state_store.py       # Postgres campaign_world_state
+  ascii_ui/
 web/
-  main.py                    # FastAPI + ASCII static client
-  ascii_client/              # Browser terminal
-  frontend_legacy/           # Old React UI (archived)
-alembic/                     # Schema migrations
-scripts/
-  LOCAL_DB_SETUP.md
-  reset_local_db.py
-  reset_play_data.py
-  load_rules_from_md.py
-  seed_playtest.py
-  seed_test_*.py
-  fixtures/
-data/                        # *.db usually gitignored
-dnd_src_material/            # Campaigns + rules (local / gitignored)
+  main.py                    # FastAPI + ASCII client
+  ascii_client/
+  frontend_legacy/           # Old React UI
+alembic/
+scripts/                     # DB reset, rules load, playtest seeds
+dnd_src_material/            # Campaigns + rules (local)
 tests/
 ```
 
 ## How play works
 
-1. You type an action in the ASCII terminal.
-2. The local LLM may emit `TOOL_CALL` blocks.
-3. `tool_executor` runs `GameActions` (HP, dice, combat, lookups, NPC trust, location, etc.).
-4. State is stored in Postgres / SQLite; the LLM narrates from tool results + memory context.
-
-The AI should not invent HP, AC, damage, or trust when a lookup/tool can supply them.
+1. You type in the ASCII terminal.
+2. Slash commands update state via the API; bare text goes to the DM over WebSocket.
+3. The local LLM may emit `TOOL_CALL` blocks; `tool_executor` runs `GameActions`.
+4. Postgres / SQLite hold truth; the LLM narrates from tool results + truncated campaign/memory context.
 
 ## Testing
 
 ```bash
-# Prefer the venv interpreter
 llama_env_311\Scripts\python.exe -m pytest tests/test_world_state.py tests/test_rules_db.py tests/test_combat.py tests/test_tool_executor.py tests/test_ascii_ui.py -q
 ```
-
-## Backlog / limitations
-
-- Campaign manager unification (`campaign_manager` vs `campaign_state_manager` vs generators)
-- Enemy AI, concentration, opportunity attacks
-- Deeper NPC / arc tracking (Phase 5)
-- Single-player focus; no polished multiplayer sessions
-- Combat positioning is narrative, not a grid
-- React UI is legacy; ASCII is primary
 
 ## License
 

@@ -48,6 +48,7 @@ def render_help(width: int = 64) -> str:
         "/status               campaign + active PC",
         "/campaigns            list campaign files",
         "/load <name>          load campaign",
+        "/playtest [camp] [char]  load default campaign + Test Fighter",
         "/session start|end    start or end session (end saves summary+memory)",
         "",
         "/chars                list characters",

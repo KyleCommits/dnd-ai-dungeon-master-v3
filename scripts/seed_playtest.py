@@ -66,13 +66,11 @@ def main() -> int:
     print("")
     print("=== PLAYTEST CHEAT SHEET ===")
     print("1. python start_web_system.py")
-    print("2. Open http://localhost:8080/")
-    print("3. /load <campaign>   (if needed)")
-    print("4. /chars")
-    print("5. /active Test Fighter")
-    print("6. /npc Mayor Aldric")
-    print("7. /monster goblin")
-    print("8. /session end       (writes summary + bumps session_count)")
+    print("2. Open http://localhost:8080/  (or :8081 if DND_PORT=8081)")
+    print("3. /playtest             (loads default campaign + Test Fighter)")
+    print("4. /npc Mayor Aldric")
+    print("5. /monster goblin")
+    print("6. /session end          (writes summary + bumps session_count)")
     print("SUCCESS: playtest seed complete")
     return 0
 

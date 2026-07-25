@@ -32,6 +32,9 @@ from .render_npc import render_npc, render_npc_list
 from .render_spell import render_spell, render_spell_list
 from .render_status import render_help, render_status
 
+PLAYTEST_CAMPAIGN = "the_sirens_embrace_a_pirates_odyssey"
+PLAYTEST_CHARACTER = "Test Fighter"
+
 
 @dataclass
 class TerminalCommandResult:
@@ -74,6 +77,8 @@ async def handle_terminal_command(
         "status": _cmd_status,
         "campaigns": _cmd_campaigns,
         "load": _cmd_load,
+        "playtest": _cmd_playtest,
+        "ready": _cmd_playtest,
         "session": _cmd_session,
         "chars": _cmd_chars,
         "characters": _cmd_chars,
@@ -233,6 +238,55 @@ async def _cmd_load(args, db: AsyncSession, connection_manager=None, **kwargs) -
         except Exception:
             pass
     return await _cmd_status([], db=db, user_id=kwargs.get("user_id", "player1"), session_id=kwargs.get("session_id"))
+
+
+async def _cmd_playtest(
+    args,
+    db: AsyncSession,
+    user_id: str = "player1",
+    session_id=None,
+    connection_manager=None,
+    **kwargs,
+) -> TerminalCommandResult:
+    """One-shot: load default (or override) campaign + set Test Fighter active."""
+    if not args:
+        campaign_name = PLAYTEST_CAMPAIGN
+        character_name = PLAYTEST_CHARACTER
+    elif len(args) == 1:
+        campaign_name = args[0]
+        character_name = PLAYTEST_CHARACTER
+    else:
+        campaign_name = args[0]
+        character_name = " ".join(args[1:])
+
+    load_result = await _cmd_load(
+        [campaign_name],
+        db=db,
+        user_id=user_id,
+        session_id=session_id,
+        connection_manager=connection_manager,
+    )
+    if not load_result.ok:
+        return load_result
+
+    active_result = await _cmd_active(
+        character_name.split(),
+        db=db,
+        user_id=user_id,
+        session_id=session_id,
+        connection_manager=connection_manager,
+    )
+    if not active_result.ok:
+        return _result(
+            f"ERROR: character '{character_name}' not found after loading '{campaign_name}'. "
+            f"Run: python scripts/seed_playtest.py --yes --reset --campaign {campaign_name}",
+            ok=False,
+        )
+
+    return _result(
+        f"SUCCESS: playtest ready — {campaign_name} / {character_name}",
+        detail_frame=active_result.detail_frame,
+    )
 
 
 async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, connection_manager=None, **kwargs) -> TerminalCommandResult:

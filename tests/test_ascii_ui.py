@@ -177,6 +177,7 @@ def test_render_status_and_help():
     help_frame = render_help()
     assert "/sheet" in help_frame
     assert "/companion" in help_frame
+    assert "/playtest" in help_frame
 
 
 @pytest.mark.asyncio
@@ -188,6 +189,7 @@ async def test_help_command_smoke():
     assert result.ok is True
     assert result.detail_frame is not None
     assert "/sheet" in result.detail_frame
+    assert "/playtest" in result.detail_frame
 
 
 @pytest.mark.asyncio
@@ -219,3 +221,84 @@ async def test_roll_command():
     assert result.ok is True
     assert result.detail_frame is not None
     assert "Total:" in result.detail_frame
+
+
+@pytest.mark.asyncio
+async def test_playtest_defaults(monkeypatch):
+    from src.ascii_ui.commands import (
+        PLAYTEST_CAMPAIGN,
+        PLAYTEST_CHARACTER,
+        TerminalCommandResult,
+    )
+
+    calls = {}
+
+    async def fake_load(args, **kwargs):
+        calls["load"] = list(args)
+        return TerminalCommandResult(ok=True, log_lines=["loaded"])
+
+    async def fake_active(args, **kwargs):
+        calls["active"] = list(args)
+        return TerminalCommandResult(ok=True, log_lines=["active"], detail_frame="SHEET")
+
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_load", fake_load)
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_active", fake_active)
+
+    class DummyDB:
+        pass
+
+    result = await handle_terminal_command("/playtest", db=DummyDB())
+    assert result.ok is True
+    assert calls["load"] == [PLAYTEST_CAMPAIGN]
+    assert calls["active"] == PLAYTEST_CHARACTER.split()
+    assert any("playtest ready" in line.lower() for line in result.log_lines)
+    assert result.detail_frame == "SHEET"
+
+
+@pytest.mark.asyncio
+async def test_playtest_overrides(monkeypatch):
+    from src.ascii_ui.commands import TerminalCommandResult
+
+    calls = {}
+
+    async def fake_load(args, **kwargs):
+        calls["load"] = list(args)
+        return TerminalCommandResult(ok=True, log_lines=["loaded"])
+
+    async def fake_active(args, **kwargs):
+        calls["active"] = list(args)
+        return TerminalCommandResult(ok=True, log_lines=["active"], detail_frame="SHEET")
+
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_load", fake_load)
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_active", fake_active)
+
+    class DummyDB:
+        pass
+
+    result = await handle_terminal_command("/playtest my_camp Test Wizard", db=DummyDB())
+    assert result.ok is True
+    assert calls["load"] == ["my_camp"]
+    assert calls["active"] == ["Test", "Wizard"]
+
+
+@pytest.mark.asyncio
+async def test_playtest_missing_character(monkeypatch):
+    from src.ascii_ui.commands import PLAYTEST_CAMPAIGN, TerminalCommandResult
+
+    async def fake_load(args, **kwargs):
+        return TerminalCommandResult(ok=True, log_lines=["loaded"])
+
+    async def fake_active(args, **kwargs):
+        return TerminalCommandResult(ok=False, log_lines=["ERROR: character not found"])
+
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_load", fake_load)
+    monkeypatch.setattr("src.ascii_ui.commands._cmd_active", fake_active)
+
+    class DummyDB:
+        pass
+
+    result = await handle_terminal_command("/playtest", db=DummyDB())
+    assert result.ok is False
+    joined = " ".join(result.log_lines).lower()
+    assert "seed_playtest" in joined
+    assert PLAYTEST_CAMPAIGN in " ".join(result.log_lines)
