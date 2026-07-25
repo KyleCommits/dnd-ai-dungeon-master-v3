@@ -1,6 +1,7 @@
 # start_web_system.py
 import asyncio
 import logging
+import socket
 import subprocess
 import sys
 import os
@@ -10,6 +11,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
+PORT = int(os.environ.get("DND_PORT", "8080"))
 
 
 def resolve_python() -> str:
@@ -24,10 +26,16 @@ def resolve_python() -> str:
     return sys.executable
 
 
+def port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def run_backend(python_exe: str) -> subprocess.Popen:
     """
     Start uvicorn without capturing stdout/stderr.
-    Piping both streams can deadlock the child on Windows and hides crash logs.
+    Use --reload only when DND_UVICORN_RELOAD=1 (reload parent can confuse health checks).
     """
     cmd = [
         python_exe,
@@ -37,29 +45,38 @@ def run_backend(python_exe: str) -> subprocess.Popen:
         "--host",
         "0.0.0.0",
         "--port",
-        "8080",
-        "--reload",
+        str(PORT),
     ]
+    if os.environ.get("DND_UVICORN_RELOAD", "").strip() in ("1", "true", "yes"):
+        cmd.append("--reload")
+
     logger.info("Starting: %s", cmd)
     return subprocess.Popen(
         cmd,
         cwd=str(ROOT),
         shell=False,
-        # Inherit console so import errors / uvicorn logs are visible
         stdout=None,
         stderr=None,
     )
 
 
 async def start_backend():
-    """Start the FastAPI backend (serves ASCII terminal UI + API)."""
     python_exe = resolve_python()
     logger.info("Using Python: %s", python_exe)
     if "llama_env_311" not in python_exe.replace("\\", "/"):
         logger.warning(
-            "Not using llama_env_311. Activate the venv or rely on the auto-detect path. "
-            "System Python (e.g. 3.13) often cannot import project deps."
+            "Not using llama_env_311. Activate the venv or rely on the auto-detect path."
         )
+
+    if port_in_use(PORT):
+        logger.error(
+            "Port %s is already in use. Stop the other process first, e.g.:\n"
+            "  netstat -ano | findstr :%s\n"
+            "  taskkill /PID <pid> /F",
+            PORT,
+            PORT,
+        )
+        return None
 
     logger.info("Starting FastAPI backend...")
     try:
@@ -83,15 +100,23 @@ async def start_backend():
         logger.error("Failed to start backend: %s", e)
         return None
 
-    logger.info("Uvicorn process started (pid=%s) on http://localhost:8080", process.pid)
+    logger.info("Uvicorn process started (pid=%s) on http://localhost:%s", process.pid, PORT)
     return process
 
 
 async def check_health(backend_process: subprocess.Popen) -> bool:
-    """Check if the backend is healthy."""
-    import aiohttp
+    """Probe /api/health (and fallbacks)."""
+    import urllib.request
+    import json
 
-    for attempt in range(45):
+    urls = [
+        f"http://127.0.0.1:{PORT}/api/health",
+        f"http://127.0.0.1:{PORT}/docs",
+        f"http://127.0.0.1:{PORT}/",
+    ]
+
+    last_err: Exception | str = "waiting for uvicorn"
+    for attempt in range(90):
         if backend_process.poll() is not None:
             logger.error(
                 "Backend process exited early with code %s. "
@@ -99,19 +124,35 @@ async def check_health(backend_process: subprocess.Popen) -> bool:
                 backend_process.returncode,
             )
             return False
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "http://localhost:8080/api/status",
-                    timeout=aiohttp.ClientTimeout(total=2),
-                ) as response:
-                    if response.status == 200:
-                        logger.info("Backend health check passed")
-                        return True
-        except Exception:
-            pass
 
-        logger.info("Health check attempt %s/45...", attempt + 1)
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=2) as resp:
+                    if resp.status != 200:
+                        continue
+                    # Prefer /api/health body when that URL succeeded
+                    if url.endswith("/api/health"):
+                        body = resp.read().decode("utf-8", errors="ignore")
+                        try:
+                            data = json.loads(body)
+                        except Exception:
+                            data = {}
+                        if data.get("ok") is True:
+                            logger.info("Backend health check passed (%s)", url)
+                            return True
+                        logger.warning(
+                            "Got HTTP 200 from %s but unexpected body: %s", url, body[:120]
+                        )
+                        continue
+                    logger.info("Backend health check passed (%s)", url)
+                    return True
+            except Exception as e:
+                last_err = e
+
+        if attempt == 0 or attempt % 5 == 4:
+            logger.info("Health check attempt %s/90... (%s)", attempt + 1, last_err)
+        else:
+            logger.info("Health check attempt %s/90...", attempt + 1)
         await asyncio.sleep(1)
 
     logger.error("Backend health check failed")
@@ -126,8 +167,10 @@ async def main():
         logger.error("Failed to start backend. Exiting.")
         return
 
-    logger.info("Waiting for backend to be ready...")
-    await asyncio.sleep(2)
+    logger.info(
+        "Waiting for backend to be ready (LLM load can take 1–3 minutes; keep this window open)..."
+    )
+    await asyncio.sleep(1)
 
     if not await check_health(backend_process):
         logger.error("Backend is not responding. See uvicorn output above.")
@@ -137,16 +180,19 @@ async def main():
 
     logger.info("=" * 60)
     logger.info("D&D AI DM Web System Started Successfully!")
-    logger.info("ASCII Terminal UI: http://localhost:8080/")
-    logger.info("Backend API:       http://localhost:8080/api/status")
-    logger.info("Legacy React UI:   web/frontend_legacy (manual npm start; deprecated)")
+    logger.info("ASCII Terminal UI: http://localhost:%s/", PORT)
+    logger.info("Health:            http://localhost:%s/api/health", PORT)
+    logger.info("Status:            http://localhost:%s/api/status", PORT)
+    logger.info("OpenAPI docs:      http://localhost:%s/docs", PORT)
     logger.info("=" * 60)
     logger.info("Press Ctrl+C to stop")
 
     try:
         while True:
             if backend_process.poll() is not None:
-                logger.error("Backend process died unexpectedly (code=%s)", backend_process.returncode)
+                logger.error(
+                    "Backend process died unexpectedly (code=%s)", backend_process.returncode
+                )
                 break
             await asyncio.sleep(5)
     except KeyboardInterrupt:

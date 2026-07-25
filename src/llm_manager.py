@@ -112,8 +112,29 @@ class LLMManager:
         logging.info("Using local transformers pipeline for DM generation")
         return await self._generate_local(full_prompt, max_new_tokens)
 
+    def _truncate_prompt(self, prompt: str, max_new_tokens: int) -> str:
+        """Keep prompt within MAX_MODEL_LEN so 12GB GPUs do not OOM on attention."""
+        tokenizer = self.pipeline.tokenizer
+        max_ctx = int(getattr(settings, "MAX_MODEL_LEN", 4096) or 4096)
+        # Leave room for generation + chat template overhead
+        max_input = max(512, max_ctx - max(max_new_tokens, 64) - 128)
+        tokens = tokenizer.encode(prompt, add_special_tokens=False)
+        if len(tokens) <= max_input:
+            return prompt
+        logging.warning(
+            "Truncating prompt from %s to %s tokens for GPU memory",
+            len(tokens),
+            max_input,
+        )
+        # Keep the end (current situation / instructions) — drop the head
+        keep = tokens[-max_input:]
+        return tokenizer.decode(keep, skip_special_tokens=False)
+
     async def _generate_local(self, prompt: str, max_new_tokens: int = 200) -> str:
         """Local LLM generation (primary path)."""
+        if not self.pipeline:
+            logging.info("Pipeline missing — lazy-loading model on main thread...")
+            self.load_model()
         if not self.pipeline:
             logging.error("Pipeline is not initialized. Cannot generate text.")
             return (
@@ -121,15 +142,20 @@ class LLMManager:
                 "The local AI model failed to initialize. Please restart the system."
             )
 
+        max_new_tokens = min(int(max_new_tokens or 200), 256)
+        prompt = self._truncate_prompt(prompt, max_new_tokens)
         messages = [{"role": "user", "content": prompt}]
 
         try:
             import asyncio
 
-            def _generate_sync():
+            def _generate_sync(prompt_text: str):
+                msgs = [{"role": "user", "content": prompt_text}]
                 formatted_prompt = self.pipeline.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+                    msgs, tokenize=False, add_generation_prompt=True
                 )
+                # Second truncate after chat template
+                formatted_prompt = self._truncate_prompt(formatted_prompt, max_new_tokens)
 
                 outputs = self.pipeline(
                     formatted_prompt,
@@ -138,27 +164,23 @@ class LLMManager:
                     temperature=0.7,
                     top_p=0.9,
                     repetition_penalty=1.1,
-                    pad_token_id=self.pipeline.tokenizer.eos_token_id
+                    pad_token_id=self.pipeline.tokenizer.eos_token_id,
                 )
-                return outputs
+                return outputs, formatted_prompt
 
             try:
-                outputs = await asyncio.wait_for(
-                    asyncio.to_thread(_generate_sync),
-                    timeout=60.0
+                outputs, formatted_prompt = await asyncio.wait_for(
+                    asyncio.to_thread(_generate_sync, prompt),
+                    timeout=90.0,
                 )
             except asyncio.TimeoutError:
-                logging.error("Local LLM generation timed out after 60 seconds")
+                logging.error("Local LLM generation timed out after 90 seconds")
                 return (
                     "The DM takes too long to consider the situation and falls silent. "
-                    "The local model timed out after 60 seconds. Please try again."
+                    "The local model timed out. Please try again."
                 )
 
             generated_text = outputs[0]["generated_text"]
-
-            formatted_prompt = self.pipeline.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
 
             if generated_text.startswith(formatted_prompt):
                 response = generated_text[len(formatted_prompt):].strip()
@@ -173,8 +195,28 @@ class LLMManager:
             response = response.replace("<|im_end|>", "").replace("<|eot_id|>", "").strip()
             return response
 
+        except torch.cuda.OutOfMemoryError as e:
+            logging.error("CUDA OOM during generation: %s", e)
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            return (
+                "The DM's thoughts are crowded (GPU out of memory). "
+                "Try a shorter action, or restart the server."
+            )
         except Exception as e:
             logging.error(f"An error occurred during local text generation: {e}")
+            err = str(e).lower()
+            if "out of memory" in err:
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                return (
+                    "The DM's thoughts are crowded (GPU out of memory). "
+                    "Try a shorter action, or restart the server."
+                )
             return (
                 "The DM stumbles over their words and cannot continue. "
                 "A generation error occurred. Please try again."

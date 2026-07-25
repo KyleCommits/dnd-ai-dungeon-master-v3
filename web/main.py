@@ -50,6 +50,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="D&D AI DM", description="AI-powered D&D Dungeon Master API")
 
+
+@app.get("/api/health")
+async def health():
+    """Lightweight liveness probe — registered first; no DB / LLM required."""
+    return {"ok": True, "service": "dnd-ai-dm"}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
@@ -78,9 +85,14 @@ async def startup_event():
     await create_tables()
     logger.info("Database tables created successfully")
 
-    logger.info("Loading LLM model at startup...")
+    # CUDA model load must stay on the main thread on Windows.
+    # Loading via asyncio.to_thread caused ACCESS_VIOLATION (0xC0000005).
+    logger.info("Loading LLM model (main thread; may take a minute)...")
     llm_manager.load_model()
-    logger.info("LLM model preloaded successfully")
+    if llm_manager.pipeline:
+        logger.info("LLM model preloaded successfully")
+    else:
+        logger.error("LLM model failed to load; chat will retry on first message")
 
 class ConnectionManager:
     def __init__(self):

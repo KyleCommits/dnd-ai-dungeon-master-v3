@@ -376,21 +376,19 @@ class DynamicDM:
             long_term_summaries: List[SessionSummary] = []
             campaign_id: Optional[int] = None
 
-            async for db_session in get_db_session():
+            async with async_session_scope() as db_session:
                 short_term_history = await get_conversation_history(db_session, session_id, limit=15)
                 chat_session = await get_chat_session_with_campaign(db_session, session_id)
                 if chat_session and chat_session.campaign:
                     long_term_summaries = await get_session_summaries(db_session, chat_session.campaign.id)
                     campaign_id = chat_session.campaign.id
 
-            if campaign_id is None and campaign_state_manager.current_state:
-                async for db_session in get_db_session():
+                if campaign_id is None and campaign_state_manager.current_state:
                     campaign = await get_campaign_by_name(
                         db_session, campaign_state_manager.current_state.campaign_name
                     )
                     if campaign:
                         campaign_id = campaign.id
-                    break
 
             campaign_context = campaign_state_manager.get_campaign_context()
 
@@ -552,15 +550,34 @@ FUNCTION CALLING INSTRUCTIONS:
         conversation_history: List[ChatMessage],
         session_summaries: List[SessionSummary]
     ) -> str:
-        history_str = self._format_conversation_history(conversation_history)
-        summary_str = self._format_session_summaries(session_summaries)
-        full_campaign_text = await self._load_full_campaign_content()
+        """
+        Build DM context sized for a 12GB GPU local Llama.
+        Do NOT inject the full campaign markdown (that OOMs attention).
+        """
+        # Keep chat short; each message capped
+        recent = conversation_history[-8:] if conversation_history else []
+        history_lines = []
+        for msg in recent:
+            role = "Player" if msg.message_type == "player" else "DM"
+            content = (msg.content or "")[:400]
+            history_lines.append(f"{role}: {content}")
+        history_str = "\n".join(history_lines) if history_lines else "No recent conversation."
 
-        massive_context = f"""
-# campaign world info
-{full_campaign_text}
+        # Cap long-term memory
+        summary_str = self._format_session_summaries(session_summaries[-5:])
 
-# campaign history
+        # Compact world state (location, NPC trust, plot) + short campaign excerpt
+        world_state = campaign_state_manager.get_campaign_context()
+        campaign_excerpt = await self._load_campaign_excerpt(max_chars=3500)
+
+        return f"""
+# campaign state (live memory)
+{world_state}
+
+# campaign excerpt (not the full book — look up details via tools if needed)
+{campaign_excerpt}
+
+# previous sessions
 {summary_str}
 
 # recent chat
@@ -569,11 +586,11 @@ FUNCTION CALLING INSTRUCTIONS:
 # current situation
 {base_prompt}
 
-REMEMBER: Use all the information above to provide a coherent, in-character response that respects the established history and current events.
+Stay in character as DM. Prefer tools for stats/trust. Keep replies concise.
 """
-        return massive_context
 
-    async def _load_full_campaign_content(self) -> str:
+    async def _load_campaign_excerpt(self, max_chars: int = 3500) -> str:
+        """Load a bounded campaign excerpt for local-GPU prompts."""
         try:
             if not campaign_state_manager.current_state or not campaign_state_manager.current_state.campaign_name:
                 return "No active campaign loaded."
@@ -584,10 +601,25 @@ REMEMBER: Use all the information above to provide a coherent, in-character resp
             if not os.path.exists(campaign_file_path):
                 return f"Campaign file for '{campaign_name}' not found."
             with open(campaign_file_path, 'r', encoding='utf-8') as file:
-                return file.read()
+                text = file.read()
+            if len(text) <= max_chars:
+                return text
+            # Prefer head (setup) + mention of current location if present
+            location = campaign_state_manager.current_state.location or ""
+            head = text[: max_chars - 400]
+            loc_bit = ""
+            if location and location.lower() in text.lower():
+                idx = text.lower().find(location.lower())
+                start = max(0, idx - 200)
+                loc_bit = "\n...\n" + text[start : start + 400]
+            return head + loc_bit + "\n\n[campaign truncated for local GPU memory]"
         except Exception as e:
-            logging.error(f"Error loading full campaign content: {e}")
+            logging.error(f"Error loading campaign excerpt: {e}")
             return f"Error loading campaign content: {str(e)}"
+
+    async def _load_full_campaign_content(self) -> str:
+        """Legacy helper — prefer _load_campaign_excerpt for chat prompts."""
+        return await self._load_campaign_excerpt(max_chars=8000)
 
     def _clean_response(self, response: str) -> str:
         response = re.sub(r'(DM NOTE|NOTE TO DM|INSTRUCTION).*?\n', '', response, flags=re.IGNORECASE)
