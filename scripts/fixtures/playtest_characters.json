@@ -1,0 +1,116 @@
+[
+  {
+    "name": "Test Fighter",
+    "race": "Human",
+    "class_name": "Fighter",
+    "level": 3,
+    "background": "Soldier",
+    "max_hp": 28,
+    "armor_class": 16,
+    "speed": 30,
+    "hit_die": 10,
+    "abilities": {
+      "strength": 16,
+      "dexterity": 14,
+      "constitution": 15,
+      "intelligence": 10,
+      "wisdom": 12,
+      "charisma": 8
+    },
+    "saving_throws": {
+      "strength": true,
+      "constitution": true
+    },
+    "skills": {
+      "Athletics": true,
+      "Intimidation": true,
+      "Perception": true,
+      "Survival": true
+    },
+    "features": [
+      {"name": "Fighting Style", "source": "class", "level_gained": 1},
+      {"name": "Second Wind", "source": "class", "level_gained": 1},
+      {"name": "Action Surge", "source": "class", "level_gained": 2}
+    ],
+    "equipment": [
+      {"name": "Longsword", "quantity": 1, "equipped": true},
+      {"name": "Chain Mail", "quantity": 1, "equipped": true},
+      {"name": "Shield", "quantity": 1, "equipped": true}
+    ]
+  },
+  {
+    "name": "Test Wizard",
+    "race": "Elf",
+    "class_name": "Wizard",
+    "level": 3,
+    "background": "Sage",
+    "max_hp": 16,
+    "armor_class": 12,
+    "speed": 30,
+    "hit_die": 6,
+    "abilities": {
+      "strength": 8,
+      "dexterity": 14,
+      "constitution": 12,
+      "intelligence": 16,
+      "wisdom": 13,
+      "charisma": 10
+    },
+    "saving_throws": {
+      "intelligence": true,
+      "wisdom": true
+    },
+    "skills": {
+      "Arcana": true,
+      "History": true,
+      "Investigation": true,
+      "Insight": true
+    },
+    "features": [
+      {"name": "Arcane Recovery", "source": "class", "level_gained": 1},
+      {"name": "Spellcasting", "source": "class", "level_gained": 1}
+    ],
+    "equipment": [
+      {"name": "Quarterstaff", "quantity": 1, "equipped": true},
+      {"name": "Component Pouch", "quantity": 1, "equipped": false}
+    ]
+  },
+  {
+    "name": "Test Cleric",
+    "race": "Dwarf",
+    "class_name": "Cleric",
+    "level": 3,
+    "background": "Acolyte",
+    "max_hp": 24,
+    "armor_class": 18,
+    "speed": 25,
+    "hit_die": 8,
+    "abilities": {
+      "strength": 14,
+      "dexterity": 10,
+      "constitution": 14,
+      "intelligence": 10,
+      "wisdom": 16,
+      "charisma": 12
+    },
+    "saving_throws": {
+      "wisdom": true,
+      "charisma": true
+    },
+    "skills": {
+      "Medicine": true,
+      "Religion": true,
+      "Insight": true,
+      "Persuasion": true
+    },
+    "features": [
+      {"name": "Spellcasting", "source": "class", "level_gained": 1},
+      {"name": "Channel Divinity", "source": "class", "level_gained": 2}
+    ],
+    "equipment": [
+      {"name": "Mace", "quantity": 1, "equipped": true},
+      {"name": "Chain Mail", "quantity": 1, "equipped": true},
+      {"name": "Shield", "quantity": 1, "equipped": true}
+    ]
+  }
+]

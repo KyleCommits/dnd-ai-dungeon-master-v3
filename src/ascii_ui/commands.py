@@ -244,6 +244,29 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
         return _result("ERROR: no campaign loaded", ok=False)
 
     if action in ("start", "new"):
+        # Avoid silent memory loss: summarize prior open session if it has messages
+        prior_warning = ""
+        sid = session_id or user_id
+        prior = await get_chat_session_with_campaign(db, sid)
+        if prior and prior.is_active:
+            history = await get_full_conversation_history(db, prior.session_id)
+            if history:
+                try:
+                    from src.llm_manager import llm_manager
+                    from src.campaign_state_manager import campaign_state_manager
+
+                    formatted = "\n".join([f"{m.message_type}: {m.content}" for m in history])
+                    summary_text = await llm_manager.generate(
+                        f"Summarize this D&D session briefly:\n{formatted[:8000]}"
+                    )
+                    await add_session_summary(db, campaign.id, summary_text or "(empty session)")
+                    await campaign_state_manager.bump_session_count()
+                    prior.is_active = False
+                    await db.commit()
+                    prior_warning = "Prior session auto-summarized. "
+                except Exception as e:
+                    prior_warning = f"WARNING: could not auto-summarize prior session ({e}). "
+
         new_session = await create_new_chat_session(db, user_id, campaign.id)
         if connection_manager and hasattr(connection_manager, "set_user_session"):
             connection_manager.set_user_session(user_id, new_session.session_id)
@@ -260,7 +283,7 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
             except Exception:
                 pass
         return _result(
-            f"SUCCESS: new session {new_session.session_id}",
+            f"{prior_warning}SUCCESS: new session {new_session.session_id}",
             detail_frame=render_status(
                 {
                     "name": state.campaign_name if state else None,
@@ -273,6 +296,8 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
         )
 
     if action == "end":
+        from src.campaign_state_manager import campaign_state_manager
+
         sid = session_id or user_id
         chat_session = await get_chat_session_with_campaign(db, sid)
         if not chat_session:
@@ -293,10 +318,24 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
                 await add_session_summary(db, campaign.id, summary_text or "(empty session)")
             except Exception:
                 pass
+        try:
+            await campaign_state_manager.bump_session_count()
+        except Exception:
+            pass
+        chat_session.is_active = False
+        try:
+            await db.commit()
+        except Exception:
+            pass
         return _result(
             "SUCCESS: session ended.",
             detail_frame=render_status(
-                {"name": state.campaign_name if state else None},
+                {
+                    "name": state.campaign_name if state else None,
+                    "act": state.current_act if state else "-",
+                    "location": state.location if state else "-",
+                    "session": state.session_count if state else "-",
+                },
                 session_id=chat_session.session_id,
                 extra={"Summary": (summary_text or "(empty)")[:200]},
             ),
@@ -460,26 +499,39 @@ async def _cmd_npcs(args, db: AsyncSession, **kwargs) -> TerminalCommandResult:
     rows: List[Dict[str, Any]] = []
     if campaign:
         rows.extend(await _list_campaign_npcs(db, campaign.id))
-    # also surface campaign-state relationship names if DB empty
+    # Merge world-memory relationships (trust) onto list / add missing names
     if state and getattr(state, "npc_relationships", None):
-        known = {r["name"].lower() for r in rows}
-        for name, info in state.npc_relationships.items():
-            if name.lower() in known:
-                continue
+        known = {str(r.get("name", "")).lower() for r in rows}
+        for key, info in state.npc_relationships.items():
+            display_name = getattr(info, "name", None) or (
+                info.get("name") if isinstance(info, dict) else key
+            )
+            trust = getattr(info, "trust_level", None)
+            band = getattr(info, "relationship", None)
             if isinstance(info, dict):
-                rows.append(
-                    {
-                        "id": "-",
-                        "name": name,
-                        "npc_type": info.get("attitude", info.get("type", "unknown")),
-                        "current_hp": info.get("current_hp", "?"),
-                        "max_hp": info.get("max_hp", "?"),
-                        "is_alive": True,
-                        "relationship": info.get("relationship") or info.get("notes"),
-                    }
-                )
-            else:
-                rows.append({"id": "-", "name": name, "npc_type": str(info), "is_alive": True})
+                trust = info.get("trust_level", trust)
+                band = info.get("relationship", band)
+                display_name = info.get("name", display_name)
+            rel_note = f"{band} (trust {trust})" if band is not None else None
+            match = next((r for r in rows if str(r.get("name", "")).lower() == str(display_name).lower()), None)
+            if match:
+                match["relationship"] = rel_note or match.get("relationship")
+                match["trust_level"] = trust
+                continue
+            if str(display_name).lower() in known:
+                continue
+            rows.append(
+                {
+                    "id": "-",
+                    "name": display_name,
+                    "npc_type": band or "unknown",
+                    "current_hp": "?",
+                    "max_hp": "?",
+                    "is_alive": True,
+                    "relationship": rel_note,
+                    "trust_level": trust,
+                }
+            )
     return _result(f"{len(rows)} NPC(s).", detail_frame=render_npc_list(rows))
 
 
@@ -506,14 +558,34 @@ async def _cmd_npc(args, db: AsyncSession, **kwargs) -> TerminalCommandResult:
         if not chosen:
             chosen = next((n for n in rows if lowered in str(n.get("name", "")).lower()), None)
 
-    if not chosen and state and getattr(state, "npc_relationships", None):
-        for name, info in state.npc_relationships.items():
-            if target.lower() in name.lower():
-                if isinstance(info, dict):
-                    chosen = {"name": name, **info, "npc_type": info.get("attitude", "unknown")}
-                else:
-                    chosen = {"name": name, "npc_type": str(info)}
-                break
+    if state and getattr(state, "npc_relationships", None):
+        for key, info in state.npc_relationships.items():
+            display = getattr(info, "name", None) or (
+                info.get("name") if isinstance(info, dict) else key
+            )
+            if target.lower() not in str(display).lower() and target.lower() not in key.lower():
+                continue
+            trust = getattr(info, "trust_level", None)
+            band = getattr(info, "relationship", None)
+            last = getattr(info, "last_interaction", "")
+            if isinstance(info, dict):
+                trust = info.get("trust_level", trust)
+                band = info.get("relationship", band)
+                last = info.get("last_interaction", last)
+            if chosen:
+                chosen["relationship"] = f"{band} (trust {trust})"
+                chosen["trust_level"] = trust
+                chosen["notes"] = last
+            else:
+                chosen = {
+                    "name": display,
+                    "npc_type": band or "unknown",
+                    "relationship": f"{band} (trust {trust})",
+                    "trust_level": trust,
+                    "notes": last,
+                    "is_alive": True,
+                }
+            break
 
     if not chosen:
         return _result(f"ERROR: NPC '{target}' not found", ok=False)

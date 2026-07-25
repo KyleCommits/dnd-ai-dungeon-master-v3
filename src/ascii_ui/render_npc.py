@@ -35,10 +35,14 @@ def render_npc(npc: Dict[str, Any], width: int = 64) -> str:
         rows.append("")
         rows.append(ability_line(abilities))
 
+    if npc.get("trust_level") is not None:
+        rows.append(f"Trust: {npc.get('trust_level')} ({npc.get('relationship', '-')})")
     relation = npc.get("relationship") or npc.get("notes")
-    if relation:
+    if relation and npc.get("trust_level") is None:
         rows.append("")
         rows.append(f"Notes: {relation}")
+    elif npc.get("notes"):
+        rows.append(f"Last: {npc.get('notes')}")
 
     return box(rows, title=title, width=width)
 
@@ -49,9 +53,11 @@ def render_npc_list(npcs: List[Dict[str, Any]], width: int = 64) -> str:
         rows.append("(no NPCs)")
     for npc in npcs:
         marker = "X" if not npc.get("is_alive", True) else " "
+        trust = npc.get("trust_level")
+        trust_bit = f" trust {trust}" if trust is not None else ""
         rows.append(
             f"{marker} [{npc.get('id', '-')}] {npc.get('name')} "
             f"{npc.get('npc_type', npc.get('type', '?'))} "
-            f"HP {npc.get('current_hp', '?')}/{npc.get('max_hp', '?')}"
+            f"HP {npc.get('current_hp', '?')}/{npc.get('max_hp', '?')}{trust_bit}"
         )
     return box(rows, title="NPCs", width=width)

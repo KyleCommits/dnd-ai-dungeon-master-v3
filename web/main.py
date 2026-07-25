@@ -292,6 +292,12 @@ async def end_session(session_id: str, db: AsyncSession = Depends(get_db_session
         chat_session.is_active = False
         await db.commit()
 
+        try:
+            from src.campaign_state_manager import campaign_state_manager
+            await campaign_state_manager.bump_session_count()
+        except Exception as bump_err:
+            logger.warning(f"Could not bump session_count: {bump_err}")
+
         logger.info(f"Session {session_id} ended and summarized successfully.")
         return {"message": "Session ended successfully.", "summary": summary_text}
     except Exception as e:

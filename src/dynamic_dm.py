@@ -218,6 +218,59 @@ class DynamicDM:
                 }
             },
             {
+                "name": "update_npc_relationship",
+                "description": "change NPC trust after a social/story beat (backend memory; do not invent trust numbers in narration)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "npc_name": {"type": "string"},
+                        "trust_delta": {"type": "integer", "description": "change in trust (-100..100 scale)"},
+                        "note": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["npc_name"]
+                }
+            },
+            {
+                "name": "update_plot_thread",
+                "description": "update a plot thread status (active/completed/failed/dormant) or add a note",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "thread_id": {"type": "string"},
+                        "status": {"type": "string"},
+                        "note": {"type": "string"},
+                        "name": {"type": "string"},
+                        "create_if_missing": {"type": "boolean"}
+                    },
+                    "required": ["thread_id"]
+                }
+            },
+            {
+                "name": "set_location",
+                "description": "set the party's current location in world memory",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["location"]
+                }
+            },
+            {
+                "name": "record_plot_event",
+                "description": "record a meaningful story/player action against active plot threads",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "event": {"type": "string"},
+                        "location": {"type": "string"}
+                    },
+                    "required": ["event"]
+                }
+            },
+            {
                 "name": "start_combat_encounter",
                 "description": "create a combat encounter (add combatants then begin_combat)",
                 "parameters": {
@@ -419,11 +472,13 @@ FUNCTION CALLING INSTRUCTIONS:
 - Use trigger_rest for short/long rests
 - Use update_inventory / equip_item / unequip_item for gear
 - Use lookup_spell / lookup_monster / lookup_item before inventing stats (local DB only)
+- Use update_npc_relationship when trust/attitude changes; use set_location when the party moves
+- Use update_plot_thread / record_plot_event for story beats (backend remembers; do not invent trust)
 - Use get_character_status to check stats
 - COMBAT: start_combat_encounter → add_character_to_encounter / add_monster_to_encounter → begin_combat → resolve_attack → next_combat_turn → end_combat
 - Prefer resolve_attack over narrating hit/miss without rolls
 - Use the active character ID from ACTIVE CHARACTER INFO above
-- Never invent dice, HP, AC, or damage numbers when a lookup tool can supply them
+- Never invent dice, HP, AC, damage, or trust numbers when a tool can supply them
 """
 
             async def _gen(prompt, max_new_tokens=250, available_functions=None):

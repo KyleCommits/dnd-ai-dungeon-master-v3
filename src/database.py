@@ -185,21 +185,44 @@ async def get_chat_session_with_campaign(db_session: AsyncSession, session_id: s
     return result.scalars().first()
 
 async def create_tables():
-    """create all the database tables including character stuff"""
+    """Prefer Alembic migrations; fall back to metadata.create_all for dev."""
+    import os
+    import subprocess
+    import sys
+
     if not engine:
         logging.error("Database engine not initialized.")
         return False
+
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            cwd=root,
+        )
+        if result.returncode == 0:
+            logging.info("Database schema updated via Alembic.")
+            return True
+        logging.warning(
+            "Alembic upgrade failed (%s); falling back to create_all. stderr=%s",
+            result.returncode,
+            (result.stderr or "")[:500],
+        )
+    except Exception as e:
+        logging.warning("Alembic not available (%s); falling back to create_all.", e)
+
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            # additive columns for existing deployments (create_all does not alter)
             await conn.execute(text(
                 "ALTER TABLE characters ADD COLUMN IF NOT EXISTS spell_slots_used TEXT DEFAULT '{}'"
             ))
             await conn.execute(text(
                 "ALTER TABLE characters ADD COLUMN IF NOT EXISTS conditions_json TEXT DEFAULT '[]'"
             ))
-        logging.info("Successfully created all database tables.")
+        logging.info("Successfully created all database tables (create_all fallback).")
         return True
     except Exception as e:
         logging.error(f"Failed to create database tables: {e}")
@@ -219,6 +242,13 @@ async def test_connection():
     except Exception as e:
         logging.error(f"An unexpected database error occurred: {e}")
         return False
+
+
+async def dispose_engine() -> None:
+    """Dispose the global async engine (avoids Windows asyncpg exit crashes in scripts)."""
+    global engine
+    if engine is not None:
+        await engine.dispose()
 
 if __name__ == '__main__':
     import asyncio

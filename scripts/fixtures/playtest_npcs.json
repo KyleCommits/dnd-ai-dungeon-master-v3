@@ -1,0 +1,41 @@
+[
+  {
+    "name": "Mayor Aldric",
+    "race": "Human",
+    "class_name": "Noble",
+    "level": 3,
+    "npc_type": "ally",
+    "max_hp": 18,
+    "armor_class": 11,
+    "speed": 30,
+    "trust_level": 25,
+    "relationship": "ally",
+    "last_interaction": "Welcomed the party to town"
+  },
+  {
+    "name": "Innkeeper Mira",
+    "race": "Halfling",
+    "class_name": null,
+    "level": 2,
+    "npc_type": "neutral",
+    "max_hp": 12,
+    "armor_class": 10,
+    "speed": 25,
+    "trust_level": 5,
+    "relationship": "neutral",
+    "last_interaction": "Rented rooms"
+  },
+  {
+    "name": "Captain Voss",
+    "race": "Human",
+    "class_name": "Fighter",
+    "level": 5,
+    "npc_type": "enemy",
+    "max_hp": 44,
+    "armor_class": 17,
+    "speed": 30,
+    "trust_level": -40,
+    "relationship": "suspicious",
+    "last_interaction": "Accused the party of smuggling"
+  }
+]

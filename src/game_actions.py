@@ -575,6 +575,94 @@ class GameActions:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def update_npc_relationship(
+        self,
+        npc_name: str,
+        trust_delta: int = 0,
+        note: str = "",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """Adjust NPC trust in campaign world state (Postgres-backed)."""
+        from .campaign_state_manager import campaign_state_manager
+
+        if not campaign_state_manager.current_state:
+            return {"success": False, "error": "no campaign loaded"}
+        note_text = note or reason or ""
+        ok = await campaign_state_manager.update_npc_relationship(
+            npc_name, note_text, int(trust_delta)
+        )
+        if not ok:
+            return {"success": False, "error": "failed to update relationship"}
+        key = npc_name.lower().replace(" ", "_")
+        npc = campaign_state_manager.current_state.npc_relationships.get(key)
+        return {
+            "success": True,
+            "message": f"{npc_name}: trust {npc.trust_level} ({npc.relationship})",
+            "npc_name": npc.name if npc else npc_name,
+            "trust_level": npc.trust_level if npc else None,
+            "relationship": npc.relationship if npc else None,
+        }
+
+    async def update_plot_thread(
+        self,
+        thread_id: str,
+        status: str = None,
+        note: str = "",
+        name: str = None,
+        create_if_missing: bool = False,
+    ) -> Dict[str, Any]:
+        """Update or create a plot thread in campaign world state."""
+        from .campaign_state_manager import campaign_state_manager
+
+        if not campaign_state_manager.current_state:
+            return {"success": False, "error": "no campaign loaded"}
+        ok = await campaign_state_manager.update_plot_thread(
+            thread_id,
+            status=status,
+            note=note or None,
+            name=name,
+            create_if_missing=bool(create_if_missing),
+        )
+        if not ok:
+            return {"success": False, "error": f"plot thread not found: {thread_id}"}
+        return {
+            "success": True,
+            "message": f"plot thread '{thread_id}' updated" + (f" -> {status}" if status else ""),
+            "thread_id": thread_id,
+            "status": status,
+        }
+
+    async def set_location(self, location: str, reason: str = "") -> Dict[str, Any]:
+        """Set current party location in campaign world state."""
+        from .campaign_state_manager import campaign_state_manager
+
+        if not campaign_state_manager.current_state:
+            return {"success": False, "error": "no campaign loaded"}
+        if not location:
+            return {"success": False, "error": "location required"}
+        ok = await campaign_state_manager.set_location(location)
+        if not ok:
+            return {"success": False, "error": "failed to set location"}
+        msg = f"location set to {location}"
+        if reason:
+            msg += f" ({reason})"
+        return {"success": True, "message": msg, "location": location}
+
+    async def record_plot_event(self, event: str, location: str = None) -> Dict[str, Any]:
+        """Record a player/story action against active plot threads."""
+        from .campaign_state_manager import campaign_state_manager
+
+        if not campaign_state_manager.current_state:
+            return {"success": False, "error": "no campaign loaded"}
+        ok = await campaign_state_manager.update_player_action(event, location=location)
+        if not ok:
+            return {"success": False, "error": "failed to record event"}
+        return {
+            "success": True,
+            "message": f"recorded: {event}",
+            "location": campaign_state_manager.current_state.location,
+        }
+
 
 # global game actions instance
 game_actions = GameActions()

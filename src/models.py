@@ -29,6 +29,7 @@ class Campaign(Base):
 
     chat_sessions = relationship("ChatSession", back_populates="campaign")
     summaries = relationship("SessionSummary", back_populates="campaign")
+    world_state = relationship("CampaignWorldState", back_populates="campaign", uselist=False)
 
 class ChatSession(Base):
     __tablename__ = 'chat_sessions'
@@ -57,6 +58,7 @@ class ChatMessage(Base):
     session = relationship("ChatSession", back_populates="messages")
 
 class CampaignState(Base):
+    """Legacy session-scoped row (unused by play loop). Prefer CampaignWorldState."""
     __tablename__ = 'campaign_state'
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(255), ForeignKey('chat_sessions.session_id'))
@@ -70,6 +72,31 @@ class CampaignState(Base):
     updated_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
 
     session = relationship("ChatSession", back_populates="campaign_state")
+
+
+class CampaignWorldState(Base):
+    """Campaign-keyed long-term memory (NPC trust, plot, location). Source of truth for Phase 4."""
+    __tablename__ = 'campaign_world_state'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey('campaigns.id'), unique=True, nullable=False)
+    current_act = Column(Integer, default=1)
+    current_scene = Column(String(255), default='Opening')
+    location = Column(String(255), default='Starting Location')
+    session_count = Column(Integer, default=0)
+    npc_relationships = Column(JSONB, default=dict)
+    active_plot_threads = Column(JSONB, default=list)
+    major_decisions = Column(JSONB, default=list)
+    plot_flags = Column(JSONB, default=dict)
+    completed_plot_points = Column(JSONB, default=list)
+    missed_opportunities = Column(JSONB, default=list)
+    reputation = Column(JSONB, default=dict)
+    custom_hooks = Column(JSONB, default=list)
+    adaptive_elements = Column(JSONB, default=list)
+    notes = Column(Text, default='')
+    updated_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="world_state")
+
 
 class SessionSummary(Base):
     __tablename__ = 'session_summaries'
