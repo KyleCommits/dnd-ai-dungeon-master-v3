@@ -129,6 +129,7 @@ archive/
 .pytest_cache/
 research_inspiration/
 prompts/
+docs/
 
 # Config files with sensitive data
 src/config.py
