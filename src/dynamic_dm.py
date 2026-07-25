@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 from .campaign_state_manager import campaign_state_manager
 from .llm_manager import llm_manager
 from .rag_manager import rag_manager
-from .database import get_db_session, get_conversation_history, get_session_summaries, get_chat_session_with_campaign, get_campaign_by_name
+from .database import async_session_scope, get_conversation_history, get_session_summaries, get_chat_session_with_campaign, get_campaign_by_name
 from .models import ChatMessage, SessionSummary
 from .game_actions import game_actions
 from .character_manager import character_manager
@@ -421,7 +421,7 @@ FUNCTION CALLING INSTRUCTIONS:
             if campaign_id is None:
                 return "No active character (no campaign id). Tool calls needing character_id will fail until one is selected."
 
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 character = await character_manager.get_active_character(db, user_id, campaign_id)
                 if not character:
                     # fallback: first character for this user in campaign

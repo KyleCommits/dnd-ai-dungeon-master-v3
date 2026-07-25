@@ -1,5 +1,6 @@
 # src/database.py
 import logging
+from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, selectinload
 from sqlalchemy.future import select
@@ -17,7 +18,7 @@ from .animal_companion_models import (
     CompanionAbility, CompanionEquipment
 )
 import asyncpg
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 # fix database url if needed
 db_url = settings.DATABASE_URL
@@ -50,6 +51,7 @@ except Exception as e:
     AsyncSessionLocal = None
 
 async def get_db_session():
+    """FastAPI dependency: yield one session per request."""
     if AsyncSessionLocal is None:
         raise ConnectionError("Database is not configured. Cannot create a session.")
     async with AsyncSessionLocal() as session:
@@ -57,6 +59,18 @@ async def get_db_session():
             yield session
         finally:
             await session.close()
+
+
+@asynccontextmanager
+async def async_session_scope() -> AsyncIterator[AsyncSession]:
+    """
+    Preferred session scope for GameActions / scripts.
+    Avoids half-closed async generators from `async for db in get_db_session()`.
+    """
+    if AsyncSessionLocal is None:
+        raise ConnectionError("Database is not configured. Cannot create a session.")
+    async with AsyncSessionLocal() as session:
+        yield session
 
 async def get_campaign_by_name(db_session: AsyncSession, campaign_name: str) -> Optional[Campaign]:
     search_name = campaign_name if campaign_name.endswith('.md') else f"{campaign_name}.md"

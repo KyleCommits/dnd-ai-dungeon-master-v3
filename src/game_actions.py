@@ -17,7 +17,7 @@ from .character_models import Character, CharacterEquipment
 from .dice_roller import dice_roller, AdvantageType
 from .spell_integration import character_spell_manager
 from .combat_system import combat_manager, ConditionType
-from .database import get_db_session
+from .database import async_session_scope
 from .equipment_system import inventory_manager, Armor
 
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +42,7 @@ class GameActions:
         returns new hp values and status changes
         """
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character).where(Character.id == int(character_id))
                 )
@@ -92,7 +92,7 @@ class GameActions:
     async def consume_spell_slot(self, character_id: str, slot_level: int, reason: str = "") -> Dict[str, Any]:
         """consume a spell slot for casting; persists used slots"""
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await self.spell_manager.consume_spell_slot(db, int(character_id), slot_level)
                 if result.get("success") and reason:
                     result["message"] = f"{result.get('message', '')} ({reason})"
@@ -109,7 +109,7 @@ class GameActions:
             except ValueError:
                 return {"success": False, "error": f"invalid condition: {condition}"}
 
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character).where(Character.id == int(character_id))
                 )
@@ -152,7 +152,7 @@ class GameActions:
         try:
             if rest_type not in ("short", "long"):
                 return {"success": False, "error": "rest_type must be 'short' or 'long'"}
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await self.spell_manager.character_rest(db, int(character_id), rest_type)
                 if result.get("success") and reason:
                     result["message"] = f"{result.get('message', '')} ({reason})"
@@ -166,7 +166,7 @@ class GameActions:
     ) -> Dict[str, Any]:
         """Add or remove inventory items (quantity can be negative)."""
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character).where(Character.id == int(character_id))
                 )
@@ -218,7 +218,7 @@ class GameActions:
     async def equip_item(self, character_id: str, item: str, equipped: bool = True, reason: str = "") -> Dict[str, Any]:
         """Equip or unequip an inventory item and recalculate AC when relevant."""
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character)
                     .options(selectinload(Character.abilities), selectinload(Character.equipment))
@@ -318,7 +318,7 @@ class GameActions:
     async def get_character_status(self, character_id: str) -> Dict[str, Any]:
         """get current character status (hp, conditions, resources)"""
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character).where(Character.id == int(character_id))
                 )
@@ -372,7 +372,7 @@ class GameActions:
     ) -> Dict[str, Any]:
         """Set character DB HP to match combatant HP after combat damage/heal."""
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 result = await db.execute(
                     select(Character).where(Character.id == int(character_id))
                 )
@@ -434,7 +434,7 @@ class GameActions:
 
     async def add_character_to_encounter(self, encounter_id: str, character_id: str) -> Dict[str, Any]:
         try:
-            async for db in get_db_session():
+            async with async_session_scope() as db:
                 character = await self.character_manager.get_character_full(db, int(character_id))
                 if not character:
                     return {"success": False, "error": f"character {character_id} not found"}

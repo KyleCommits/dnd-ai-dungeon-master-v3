@@ -75,20 +75,30 @@ def test_resolve_attack_structure():
     goblin = combat_manager.add_monster_to_combat(encounter.id, "goblin")
     combat_manager.begin_combat(encounter.id)
 
-    # Force high attack bonus so hits are likely; still assert structure
+    # Force high attack bonus; retry past natural-1 auto-miss (5e)
     goblin.attack_bonus = 50
     before = pc.current_hp
-    result = combat_manager.resolve_attack(encounter.id, goblin.id, pc.id)
-    assert result["success"] is True
+    result = None
+    for _ in range(40):
+        result = combat_manager.resolve_attack(encounter.id, goblin.id, pc.id)
+        assert result["success"] is True
+        if result.get("natural_roll") != 1:
+            break
+    assert result is not None
     assert result["hit"] is True
     assert result["damage"] > 0
     assert pc.current_hp < before
     assert result["character_id"] == 7
 
-    # Miss path: AC impossibly high
+    # Miss path: AC impossibly high (nat 20 still hits — retry until not 20)
     pc.ac = 99
-    miss = combat_manager.resolve_attack(encounter.id, goblin.id, pc.id)
-    assert miss["success"] is True
+    miss = None
+    for _ in range(40):
+        miss = combat_manager.resolve_attack(encounter.id, goblin.id, pc.id)
+        assert miss["success"] is True
+        if miss.get("natural_roll") != 20:
+            break
+    assert miss is not None
     assert miss["hit"] is False
     assert miss["damage"] == 0
 
