@@ -1,0 +1,142 @@
+:root {
+  --bg: #0d1110;
+  --panel: #121816;
+  --border: #2a3a32;
+  --text: #c8d6c8;
+  --dim: #6f8574;
+  --accent: #8fbc8f;
+  --warn: #c9a227;
+  --err: #c45c5c;
+  --font: "Cascadia Mono", "Consolas", "Courier New", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+#app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  min-height: 100vh;
+}
+
+#topbar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #15201a 0%, var(--bg) 100%);
+}
+
+.brand {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.muted {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.status-online { color: var(--accent); }
+.status-offline { color: var(--err); }
+
+#main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+#log-pane, #detail-pane {
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel);
+}
+
+#log-pane {
+  border-right: 1px solid var(--border);
+}
+
+#log, #detail {
+  margin: 0;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+#detail {
+  color: var(--accent);
+}
+
+#input-form {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--border);
+  background: #0f1512;
+}
+
+.prompt {
+  color: var(--accent);
+}
+
+#input {
+  width: 100%;
+  background: #0a0e0c;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  padding: 0.45rem 0.6rem;
+  outline: none;
+}
+
+#input:focus {
+  border-color: var(--accent);
+}
+
+button {
+  font-family: var(--font);
+  background: #1a2a22;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+.log-user { color: #9ec9ff; }
+.log-dm { color: var(--text); }
+.log-system { color: var(--warn); }
+.log-error { color: var(--err); }
+.log-ok { color: var(--accent); }
+
+@media (max-width: 860px) {
+  #main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  #log-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

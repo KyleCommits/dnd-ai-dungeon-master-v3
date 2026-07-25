@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D&D AI DM — ASCII Terminal</title>
+  <link rel="stylesheet" href="/ascii/terminal.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <span class="brand">D&amp;D AI DM</span>
+      <span id="conn-status" class="status-offline">OFFLINE</span>
+      <span id="campaign-label" class="muted">no campaign</span>
+    </header>
+
+    <main id="main">
+      <section id="log-pane" aria-label="Chat and command log">
+        <pre id="log"></pre>
+      </section>
+      <section id="detail-pane" aria-label="Detail frame">
+        <pre id="detail">Type /help for commands.
+Bare text chats with the DM.</pre>
+      </section>
+    </main>
+
+    <form id="input-form">
+      <label for="input" class="prompt">&gt;</label>
+      <input id="input" type="text" autocomplete="off" spellcheck="false"
+             placeholder="chat or /command" />
+      <button type="submit">SEND</button>
+    </form>
+  </div>
+  <script src="/ascii/terminal.js"></script>
+</body>
+</html>

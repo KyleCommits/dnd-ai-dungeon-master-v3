@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.dynamic_dm import DynamicDM
@@ -42,6 +43,7 @@ from src.animal_companion_manager import AnimalCompanionManager
 from src.animal_companion_models import CompanionTemplate, AnimalCompanion
 from web.campaign_routes import campaign_router
 from src.enhanced_character_api import router as enhanced_character_router
+from src.ascii_ui import handle_terminal_command
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,8 +62,13 @@ app.include_router(campaign_router)
 app.include_router(character_creation_router)
 app.include_router(enhanced_character_router)
 
+ASCII_CLIENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ascii_client")
+
 if os.path.exists("web/build"):
     app.mount("/static", StaticFiles(directory="web/build"), name="static")
+
+if os.path.isdir(ASCII_CLIENT_DIR):
+    app.mount("/ascii", StaticFiles(directory=ASCII_CLIENT_DIR), name="ascii_client")
 
 dynamic_dm = DynamicDM()
 
@@ -124,7 +131,35 @@ class SystemStatus(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "D&D AI DM Backend Running"}
+    index_path = os.path.join(ASCII_CLIENT_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return {"message": "D&D AI DM Backend Running (ASCII client missing)"}
+
+
+class TerminalCommandRequest(BaseModel):
+    command: str
+    user_id: str = "player1"
+    session_id: Optional[str] = None
+
+
+@app.post("/api/terminal/command")
+async def terminal_command(request: TerminalCommandRequest, db: AsyncSession = Depends(get_db_session)):
+    """Execute an ASCII terminal slash command and return log lines + detail frame."""
+    session_id = request.session_id or manager.get_user_session(request.user_id)
+    result = await handle_terminal_command(
+        request.command,
+        db=db,
+        user_id=request.user_id,
+        session_id=session_id,
+        connection_manager=manager,
+    )
+    return {
+        "ok": result.ok,
+        "log_lines": result.log_lines,
+        "detail_frame": result.detail_frame,
+    }
+
 
 @app.get("/api/status")
 async def get_system_status(db: AsyncSession = Depends(get_db_session)):
