@@ -1653,7 +1653,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, db: AsyncSessio
                 print("DEBUG: broadcasted user message")
 
                 print("DEBUG: generating dm response...")
-                dm_response = await dynamic_dm.generate_response(user_message, current_session_id)
+                dm_response = await dynamic_dm.generate_response(
+                    user_message, current_session_id, user_id=user_id
+                )
                 print(f"DEBUG: got dm response: {dm_response[:100]}...")
 
                 await add_chat_message(db, chat_session.session_id, 'dm', dm_response)

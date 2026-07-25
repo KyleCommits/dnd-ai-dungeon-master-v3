@@ -85,7 +85,9 @@ class DnDBot(commands.Bot):
                     if campaign_state_manager.current_state:
                         # Use dynamic DM system for intelligent responses
                         logging.info(f"Using dynamic DM system for: {message.content}")
-                        response = await dynamic_dm.generate_response(message.content, message.author.name)
+                        response = await dynamic_dm.generate_response(
+                            message.content, message.author.name, user_id=str(message.author.id)
+                        )
                         
                         # Create rich embed response
                         state = campaign_state_manager.current_state
@@ -694,7 +696,9 @@ async def dm_response(ctx, *, player_action: str):
     logging.info(f"Generating dynamic DM response for: {ctx.author.name} - {player_action}")
     
     async with ctx.typing():
-        response = await dynamic_dm.generate_response(player_action, ctx.author.name)
+        response = await dynamic_dm.generate_response(
+            player_action, ctx.author.name, user_id=str(ctx.author.id)
+        )
     
     # Create rich response embed
     state = campaign_state_manager.current_state

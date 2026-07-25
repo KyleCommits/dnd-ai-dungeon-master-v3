@@ -1,13 +1,15 @@
 # src/dynamic_dm.py
 import logging
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from .campaign_state_manager import campaign_state_manager
 from .llm_manager import llm_manager
 from .rag_manager import rag_manager
-from .database import get_db_session, get_conversation_history, get_session_summaries, get_chat_session_with_campaign
+from .database import get_db_session, get_conversation_history, get_session_summaries, get_chat_session_with_campaign, get_campaign_by_name
 from .models import ChatMessage, SessionSummary
 from .game_actions import game_actions
+from .character_manager import character_manager
+from .tool_executor import run_tool_loop
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,7 +17,7 @@ class DynamicDM:
     def __init__(self):
         self.base_dm_prompt = """You are an experienced Dungeon Master running a D&D 5e campaign. Generate immersive, rule-compliant responses that maintain player agency."""
 
-        # define available functions for gemini
+        # define available functions for local LLM tool calling
         self.available_functions = [
             {
                 "name": "modify_hp",
@@ -277,47 +279,64 @@ class DynamicDM:
             }
         ]
 
-    async def generate_response(self, player_message: str, session_id: str) -> str:
+    async def generate_response(
+        self, player_message: str, session_id: str, user_id: str = "player1"
+    ) -> str:
         if not campaign_state_manager.current_state:
             return "Please load a campaign first."
-        
+
         try:
             short_term_history: List[ChatMessage] = []
             long_term_summaries: List[SessionSummary] = []
-            
+            campaign_id: Optional[int] = None
+
             async for db_session in get_db_session():
                 short_term_history = await get_conversation_history(db_session, session_id, limit=15)
                 chat_session = await get_chat_session_with_campaign(db_session, session_id)
                 if chat_session and chat_session.campaign:
                     long_term_summaries = await get_session_summaries(db_session, chat_session.campaign.id)
+                    campaign_id = chat_session.campaign.id
+
+            if campaign_id is None and campaign_state_manager.current_state:
+                async for db_session in get_db_session():
+                    campaign = await get_campaign_by_name(
+                        db_session, campaign_state_manager.current_state.campaign_name
+                    )
+                    if campaign:
+                        campaign_id = campaign.id
+                    break
 
             campaign_context = campaign_state_manager.get_campaign_context()
-            
+
             dm_response = await self._generate_contextual_response(
                 player_message,
-                "player1",  # player_name
+                user_id,
                 campaign_context,
                 short_term_history,
-                long_term_summaries
+                long_term_summaries,
+                user_id=user_id,
+                campaign_id=campaign_id,
             )
-            
+
             return dm_response
-            
+
         except Exception as e:
             logging.error(f"Error generating dynamic DM response: {e}", exc_info=True)
             return "The DM pauses thoughtfully, considering the situation..."
 
     async def _generate_contextual_response(
-        self, 
-        player_message: str, 
+        self,
+        player_message: str,
         player_name: str,
-        campaign_context: str, 
+        campaign_context: str,
         conversation_history: List[ChatMessage],
-        session_summaries: List[SessionSummary]
+        session_summaries: List[SessionSummary],
+        user_id: str = "player1",
+        campaign_id: Optional[int] = None,
     ) -> str:
-        
+
         summary_context = self._format_session_summaries(session_summaries)
-        
+
         if not session_summaries and len(conversation_history) <= 1:
             session_instructions = "This is Session 0. Begin with a captivating introduction to the campaign. Set the scene and establish the starting situation."
         elif not session_summaries:
@@ -345,57 +364,84 @@ RESPONSE RULES:
 - CRITICAL: Do NOT ask \"what do you do?\". Let the scene progress.
 - CRITICAL: Do NOT reveal hidden information (emotions, motives) without an ability check.
 """
-        
+
         try:
             massive_context_prompt = await self._build_massive_context(
                 response_prompt, conversation_history, session_summaries
             )
 
-            # get active character info for functions
-            active_character_info = await self._get_active_character_info()
+            active_character_info = await self._get_active_character_info(user_id, campaign_id)
 
-            # add function calling instructions to prompt
             function_prompt = f"""{massive_context_prompt}
 
 ACTIVE CHARACTER INFO:
 {active_character_info}
 
 FUNCTION CALLING INSTRUCTIONS:
-- You can directly modify game state using function calls
-- Use modify_hp() when characters take damage or heal outside structured combat
-- Use roll_dice_for_character() for ability checks and saving throws
-- Use apply_condition() when characters get status effects
-- Use consume_spell_slot() when characters cast spells
-- Use trigger_rest() for short/long rests
-- Use update_inventory() / equip_item() / unequip_item() for gear
-- Use get_character_status() to check character stats
-- COMBAT: use start_combat_encounter → add_character_to_encounter / add_monster_to_encounter → begin_combat → resolve_attack → next_combat_turn → end_combat
-- Prefer resolve_attack() over narrating hit/miss without rolls; include roll results in narration
-- Always include the actual function results in your response naturally
-- Example: "The goblin swings! Attack 14 vs AC 16 — miss."
-- Use the active character ID from the info above when calling functions
+- To change game state you MUST emit TOOL_CALL / END_TOOL_CALL blocks (see protocol in system tools section).
+- Use modify_hp when characters take damage or heal outside structured combat
+- Use roll_dice_for_character for ability checks and saving throws
+- Use apply_condition for status effects
+- Use consume_spell_slot when characters cast leveled spells
+- Use trigger_rest for short/long rests
+- Use update_inventory / equip_item / unequip_item for gear
+- Use get_character_status to check stats
+- COMBAT: start_combat_encounter → add_character_to_encounter / add_monster_to_encounter → begin_combat → resolve_attack → next_combat_turn → end_combat
+- Prefer resolve_attack over narrating hit/miss without rolls
+- Use the active character ID from ACTIVE CHARACTER INFO above
+- Never invent dice or HP numbers without a tool call
 """
 
-            dm_response = await llm_manager.generate(
+            async def _gen(prompt, max_new_tokens=250, available_functions=None):
+                return await llm_manager.generate(
+                    prompt,
+                    max_new_tokens=max_new_tokens,
+                    use_massive_context=True,
+                    available_functions=available_functions,
+                )
+
+            dm_response = await run_tool_loop(
                 function_prompt,
-                max_new_tokens=150,
-                use_massive_context=True,
-                available_functions=self.available_functions
+                self.available_functions,
+                _gen,
+                max_rounds=2,
+                max_new_tokens=250,
+                max_narration_tokens=180,
             )
             return self._clean_response(dm_response)
         except Exception as e:
             logging.error(f"Error generating contextual response: {e}", exc_info=True)
             return "The DM stumbles, momentarily losing the thread of the story."
 
-    async def _get_active_character_info(self) -> str:
-        """get active character info for function calling"""
+    async def _get_active_character_info(
+        self, user_id: str = "player1", campaign_id: Optional[int] = None
+    ) -> str:
+        """Load active character for the user/campaign for tool calling."""
         try:
-            # for now just return a placeholder since we're having db relationship issues
-            return "Active Character: Test Character (ID: 1) - Level 1 Human Fighter - HP: 10/10"
+            if campaign_id is None:
+                return "No active character (no campaign id). Tool calls needing character_id will fail until one is selected."
 
+            async for db in get_db_session():
+                character = await character_manager.get_active_character(db, user_id, campaign_id)
+                if not character:
+                    # fallback: first character for this user in campaign
+                    chars = await character_manager.get_user_characters(db, user_id, campaign_id)
+                    character = chars[0] if chars else None
+
+                if not character:
+                    return (
+                        f"No active character for user={user_id} campaign_id={campaign_id}. "
+                        "Ask the player to select a character before combat/tool actions."
+                    )
+
+                return (
+                    f"Active Character: {character.name} (ID: {character.id}) - "
+                    f"Level {character.level} {character.race} {character.class_name} - "
+                    f"HP: {character.current_hp}/{character.max_hp} - AC: {character.armor_class}"
+                )
         except Exception as e:
             print(f"ERROR: error getting active character info: {e}")
-            return "Error getting character info"
+            return f"Error getting character info: {e}"
 
     def _format_conversation_history(self, history: List[ChatMessage]) -> str:
         if not history:
