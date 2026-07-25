@@ -26,6 +26,8 @@ from src.enhanced_spell_system import enhanced_spell_manager
 
 from .render_character import render_character_list, render_character_sheet
 from .render_companion import pick_primary_companion, render_companion, render_companion_list
+from .render_equipment import render_item, render_item_list
+from .render_monster import render_monster, render_monster_list
 from .render_npc import render_npc, render_npc_list
 from .render_spell import render_spell, render_spell_list
 from .render_status import render_help, render_status
@@ -86,6 +88,12 @@ async def handle_terminal_command(
         "unprepare": _cmd_unprepare,
         "rest": _cmd_rest,
         "roll": _cmd_roll,
+        "monster": _cmd_monster,
+        "monsters": _cmd_monster,
+        "gear": _cmd_gear,
+        "item": _cmd_gear,
+        "equip": _cmd_equip,
+        "unequip": _cmd_unequip,
     }
 
     handler = handlers.get(verb)
@@ -677,3 +685,83 @@ async def _cmd_roll(args, **kwargs) -> TerminalCommandResult:
         f"Total:    {result.total}",
     ]
     return _result(f"Rolled {notation} = {result.total}", detail_frame=box(rows, title="Dice"))
+
+
+async def _cmd_monster(args, **kwargs) -> TerminalCommandResult:
+    from src.monster_catalog import get_monster, search_monsters
+
+    query = " ".join(args).strip()
+    if not query:
+        rows = search_monsters(limit=30)
+        return _result(f"{len(rows)} monster(s).", detail_frame=render_monster_list(rows))
+
+    monster = get_monster(query)
+    if monster:
+        return _result(f"Monster: {monster.get('name')}", detail_frame=render_monster(monster))
+
+    rows = search_monsters(query=query, limit=30)
+    if not rows:
+        return _result(f"ERROR: no monster matching '{query}'", ok=False)
+    if len(rows) == 1:
+        return _result(f"Monster: {rows[0].get('name')}", detail_frame=render_monster(rows[0]))
+    return _result(f"{len(rows)} match(es).", detail_frame=render_monster_list(rows))
+
+
+async def _cmd_gear(args, **kwargs) -> TerminalCommandResult:
+    from src.rules_db import rules_db
+    from src.game_actions import game_actions
+
+    query = " ".join(args).strip()
+    if not query:
+        # show active character inventory if possible
+        return _result(
+            "Usage: /gear <name>  or  /gear weapon|armor",
+            detail_frame=render_item_list(rules_db.search_items(limit=25)),
+        )
+
+    if query.lower() in ("weapon", "weapons", "armor", "shield", "gear"):
+        itype = "weapon" if query.lower().startswith("weapon") else (
+            "armor" if query.lower().startswith("armor") else query.lower()
+        )
+        rows = rules_db.search_items(item_type=itype, limit=40)
+        return _result(f"{len(rows)} {itype} item(s).", detail_frame=render_item_list(rows))
+
+    result = await game_actions.lookup_item(query)
+    if not result.get("success"):
+        rows = rules_db.search_items(query=query, limit=30)
+        if not rows:
+            return _result(f"ERROR: {result.get('error', 'not found')}", ok=False)
+        return _result(f"{len(rows)} match(es).", detail_frame=render_item_list(rows))
+    return _result(f"Item: {result.get('name')}", detail_frame=render_item(result))
+
+
+async def _cmd_equip(args, db: AsyncSession, user_id: str, **kwargs) -> TerminalCommandResult:
+    from src.game_actions import game_actions
+
+    if not args:
+        return _result("ERROR: usage /equip <item name>", ok=False)
+    state, campaign, character = await _active_character(db, user_id)
+    if not character:
+        return _result("ERROR: no active character", ok=False)
+    item = " ".join(args)
+    result = await game_actions.equip_item(str(character.id), item, equipped=True)
+    if not result.get("success"):
+        return _result(f"ERROR: {result.get('error', 'equip failed')}", ok=False)
+    full = await character_manager.get_character_full(db, character.id)
+    return _result(result.get("message", "equipped"), detail_frame=render_character_sheet(_character_to_sheet_dict(full)))
+
+
+async def _cmd_unequip(args, db: AsyncSession, user_id: str, **kwargs) -> TerminalCommandResult:
+    from src.game_actions import game_actions
+
+    if not args:
+        return _result("ERROR: usage /unequip <item name>", ok=False)
+    state, campaign, character = await _active_character(db, user_id)
+    if not character:
+        return _result("ERROR: no active character", ok=False)
+    item = " ".join(args)
+    result = await game_actions.unequip_item(str(character.id), item)
+    if not result.get("success"):
+        return _result(f"ERROR: {result.get('error', 'unequip failed')}", ok=False)
+    full = await character_manager.get_character_full(db, character.id)
+    return _result(result.get("message", "unequipped"), detail_frame=render_character_sheet(_character_to_sheet_dict(full)))

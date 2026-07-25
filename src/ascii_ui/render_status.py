@@ -67,6 +67,11 @@ def render_help(width: int = 64) -> str:
         "/unprepare <name>     unprepare spell",
         "/rest short|long      rest",
         "",
+        "/monster [query]      monster lookup (rules.db)",
+        "/gear [query]         equipment lookup",
+        "/equip <item>         equip from inventory",
+        "/unequip <item>       unequip item",
+        "",
         "/roll <NdM[+/-K]>     dice roll",
     ]
     return box(rows, title="ASCII Terminal Help", width=width)

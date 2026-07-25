@@ -18,7 +18,7 @@ from .dice_roller import dice_roller, AdvantageType
 from .spell_integration import character_spell_manager
 from .combat_system import combat_manager, ConditionType
 from .database import async_session_scope
-from .equipment_system import inventory_manager, Armor
+from .equipment_system import inventory_manager, Armor, ItemType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -250,8 +250,11 @@ class GameActions:
                         continue
                     catalog = inventory_manager.get_item(eq.item_name)
                     if catalog and isinstance(catalog, Armor):
-                        equipped_armor = eq.item_name
-                    elif eq.item_name.lower() == "shield":
+                        if catalog.item_type == ItemType.SHIELD:
+                            has_shield = True
+                        else:
+                            equipped_armor = eq.item_name
+                    elif "shield" in eq.item_name.lower():
                         has_shield = True
 
                 character.armor_class = inventory_manager.calculate_ac(
@@ -507,6 +510,70 @@ class GameActions:
 
     async def end_combat(self, encounter_id: str) -> Dict[str, Any]:
         return self.combat_manager.end_and_remove_encounter(encounter_id)
+
+    async def lookup_spell(self, spell_name: str) -> Dict[str, Any]:
+        """Read-only spell lookup from local spells.db (no invented stats)."""
+        try:
+            from .enhanced_spell_system import enhanced_spell_manager
+
+            enhanced_spell_manager.initialize()
+            spell = enhanced_spell_manager.get_spell(spell_name)
+            if not spell:
+                return {"success": False, "error": f"spell not found: {spell_name}"}
+            return {
+                "success": True,
+                "name": spell.name,
+                "level": spell.level,
+                "school": spell.school,
+                "casting_time": spell.casting_time,
+                "range": spell.range,
+                "duration": spell.duration,
+                "components": spell.components,
+                "concentration": spell.concentration,
+                "ritual": spell.ritual,
+                "description": spell.description,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def lookup_monster(self, monster_name: str) -> Dict[str, Any]:
+        """Read-only monster lookup from local rules.db / catalog."""
+        try:
+            from .monster_catalog import get_monster
+
+            monster = get_monster(monster_name)
+            if not monster:
+                return {"success": False, "error": f"monster not found: {monster_name}"}
+            return {"success": True, **monster}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def lookup_item(self, item_name: str) -> Dict[str, Any]:
+        """Read-only equipment lookup from local rules.db / catalogs."""
+        try:
+            from .rules_db import rules_db
+
+            row = rules_db.get_item(item_name)
+            if row:
+                return {"success": True, **row}
+            known = inventory_manager.get_item(item_name)
+            if not known:
+                return {"success": False, "error": f"item not found: {item_name}"}
+            data = {
+                "success": True,
+                "name": known.name,
+                "item_type": getattr(known.item_type, "value", str(known.item_type)),
+                "cost": f"{getattr(known, 'cost_gp', '?')} gp",
+                "weight": f"{getattr(known, 'weight_lb', '?')} lb.",
+                "description": getattr(known, "description", ""),
+            }
+            if isinstance(known, Armor):
+                data["base_ac"] = known.base_ac
+                data["armor_category"] = known.armor_type.value
+                data["max_dex_bonus"] = known.max_dex_bonus
+            return data
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 
 # global game actions instance

@@ -434,20 +434,83 @@ class InventoryManager:
         self.magic_items = MagicItemDatabase.MAGIC_ITEMS
 
     def get_item(self, name: str) -> Optional[Union[Weapon, Armor, Item, MagicItem]]:
-        """Get any item by name"""
-        # Check weapons first
-        if name in self.weapons:
-            return self.weapons[name]
+        """Get any item by name (rules.db first, then in-code catalogs)."""
+        # Offline rules.db (PHB MD / loader seed) preferred
+        try:
+            from .rules_db import rules_db
 
-        # Check armor
-        if name in self.armor:
-            return self.armor[name]
+            row = rules_db.get_item(name)
+            if row:
+                return self._row_to_item(row)
+        except Exception:
+            pass
 
-        # Check magic items
-        if name in self.magic_items:
-            return self.magic_items[name]
+        # Case-insensitive in-code catalog fallback
+        for key, weapon in self.weapons.items():
+            if key.lower() == name.lower():
+                return weapon
+        for key, armor in self.armor.items():
+            if key.lower() == name.lower():
+                return armor
+        for key, magic in self.magic_items.items():
+            if key.lower() == name.lower():
+                return magic
 
         return None
+
+    def _row_to_item(self, row: Dict[str, Any]) -> Optional[Union[Weapon, Armor, Item]]:
+        """Convert rules.db equipment row into Weapon/Armor/Item for AC math."""
+        item_type = (row.get("item_type") or "").lower()
+        name = row["name"]
+        if item_type == "weapon":
+            dmg = row.get("damage") or "1d4"
+            dtype = row.get("damage_type") or "bludgeoning"
+            props = [p.strip() for p in (row.get("properties") or "").split(",") if p.strip()]
+            return Weapon(
+                name=name,
+                item_type=ItemType.WEAPON,
+                cost_gp=0,
+                weight_lb=0,
+                description=f"From rules.db ({row.get('source')})",
+                damage=DamageInfo(str(dmg), str(dtype)),
+                properties=props,
+            )
+        if item_type in ("armor", "shield"):
+            category = (row.get("armor_category") or "").lower()
+            if item_type == "shield" or category == "shield":
+                return Armor(
+                    name=name,
+                    item_type=ItemType.SHIELD,
+                    cost_gp=0,
+                    weight_lb=0,
+                    description="Shield",
+                    armor_type=ArmorType.LIGHT,
+                    base_ac=int(row.get("base_ac") or 2),
+                )
+            if category == "heavy":
+                at = ArmorType.HEAVY
+            elif category == "medium":
+                at = ArmorType.MEDIUM
+            else:
+                at = ArmorType.LIGHT
+            return Armor(
+                name=name,
+                item_type=ItemType.ARMOR,
+                cost_gp=0,
+                weight_lb=0,
+                description=f"From rules.db ({row.get('source')})",
+                armor_type=at,
+                base_ac=int(row.get("base_ac") or 10),
+                max_dex_bonus=row.get("max_dex_bonus"),
+                stealth_disadvantage=bool(row.get("stealth_disadvantage")),
+            )
+        return Item(
+            name=name,
+            item_type=ItemType.ADVENTURING_GEAR,
+            cost_gp=0,
+            weight_lb=0,
+            description=str(row.get("source") or ""),
+        )
 
     def calculate_ac(self, character_data: Dict[str, Any]) -> int:
         """Calculate character's AC based on equipped armor"""
@@ -458,14 +521,19 @@ class InventoryManager:
 
         if equipped_armor:
             armor = self.get_item(equipped_armor)
-            if armor and isinstance(armor, Armor):
+            if armor and isinstance(armor, Armor) and armor.item_type != ItemType.SHIELD:
                 if armor.armor_type == ArmorType.LIGHT:
                     base_ac = armor.base_ac + dex_modifier
                 elif armor.armor_type == ArmorType.MEDIUM:
-                    max_dex = armor.max_dex_bonus or 2
+                    max_dex = armor.max_dex_bonus if armor.max_dex_bonus is not None else 2
                     base_ac = armor.base_ac + min(dex_modifier, max_dex)
                 elif armor.armor_type == ArmorType.HEAVY:
                     base_ac = armor.base_ac
+                else:
+                    base_ac = 10 + dex_modifier
+            else:
+                # Unknown armor name — unarmored baseline
+                base_ac = 10 + dex_modifier
         else:
             # Unarmored
             base_ac = 10 + dex_modifier

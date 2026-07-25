@@ -185,6 +185,39 @@ class DynamicDM:
                 }
             },
             {
+                "name": "lookup_spell",
+                "description": "look up a spell from the local spell database (do not invent spell stats)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "spell_name": {"type": "string"}
+                    },
+                    "required": ["spell_name"]
+                }
+            },
+            {
+                "name": "lookup_monster",
+                "description": "look up a monster from the local rules database (do not invent HP/AC/damage)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "monster_name": {"type": "string"}
+                    },
+                    "required": ["monster_name"]
+                }
+            },
+            {
+                "name": "lookup_item",
+                "description": "look up a weapon/armor/gear item from the local rules database",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "item_name": {"type": "string"}
+                    },
+                    "required": ["item_name"]
+                }
+            },
+            {
                 "name": "start_combat_encounter",
                 "description": "create a combat encounter (add combatants then begin_combat)",
                 "parameters": {
@@ -385,11 +418,12 @@ FUNCTION CALLING INSTRUCTIONS:
 - Use consume_spell_slot when characters cast leveled spells
 - Use trigger_rest for short/long rests
 - Use update_inventory / equip_item / unequip_item for gear
+- Use lookup_spell / lookup_monster / lookup_item before inventing stats (local DB only)
 - Use get_character_status to check stats
 - COMBAT: start_combat_encounter → add_character_to_encounter / add_monster_to_encounter → begin_combat → resolve_attack → next_combat_turn → end_combat
 - Prefer resolve_attack over narrating hit/miss without rolls
 - Use the active character ID from ACTIVE CHARACTER INFO above
-- Never invent dice or HP numbers without a tool call
+- Never invent dice, HP, AC, or damage numbers when a lookup tool can supply them
 """
 
             async def _gen(prompt, max_new_tokens=250, available_functions=None):
