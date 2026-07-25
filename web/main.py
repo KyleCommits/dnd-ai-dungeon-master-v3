@@ -1698,12 +1698,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, db: AsyncSessio
                 print(f"DEBUG: got chat session: {chat_session.session_id}")
                 await add_chat_message(db, chat_session.session_id, 'player', user_message)
                 print("DEBUG: added player message to db")
-
-                await manager.broadcast(json.dumps({
-                    "type": "user_message", "user_id": user_id, "message": user_message,
-                    "timestamp": datetime.now().isoformat()
-                }))
-                print("DEBUG: broadcasted user message")
+                # Do not broadcast user_message — ASCII client already shows "You:" locally.
+                # Re-broadcasting caused a false "DM:" echo of the player text.
 
                 print("DEBUG: generating dm response...")
                 dm_response = await dynamic_dm.generate_response(

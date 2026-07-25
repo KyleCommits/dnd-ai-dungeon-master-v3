@@ -80,6 +80,8 @@ async def handle_terminal_command(
         "playtest": _cmd_playtest,
         "ready": _cmd_playtest,
         "session": _cmd_session,
+        "session_start": _cmd_session_start_alias,
+        "session_end": _cmd_session_end_alias,
         "chars": _cmd_chars,
         "characters": _cmd_chars,
         "active": _cmd_active,
@@ -289,9 +291,17 @@ async def _cmd_playtest(
     )
 
 
+async def _cmd_session_start_alias(args, **kwargs) -> TerminalCommandResult:
+    return await _cmd_session(["start", *args], **kwargs)
+
+
+async def _cmd_session_end_alias(args, **kwargs) -> TerminalCommandResult:
+    return await _cmd_session(["end", *args], **kwargs)
+
+
 async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, connection_manager=None, **kwargs) -> TerminalCommandResult:
     if not args:
-        return _result("ERROR: usage /session start|end", ok=False)
+        return _result("ERROR: usage /session start|end  (also /session_start, /session_end)", ok=False)
     action = args[0].lower()
     state, campaign = await _resolve_campaign(db)
     if not campaign:
@@ -336,6 +346,17 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
                 )
             except Exception:
                 pass
+        # Preserve active PC on the status frame (session start does not clear it)
+        _, _, active_pc = await _active_character(db, user_id)
+        active_dict = None
+        if active_pc:
+            active_dict = {
+                "id": active_pc.id,
+                "name": active_pc.name,
+                "current_hp": active_pc.current_hp,
+                "max_hp": active_pc.max_hp,
+                "armor_class": active_pc.armor_class,
+            }
         return _result(
             f"{prior_warning}SUCCESS: new session {new_session.session_id}",
             detail_frame=render_status(
@@ -345,6 +366,7 @@ async def _cmd_session(args, db: AsyncSession, user_id: str, session_id=None, co
                     "location": state.location if state else "-",
                     "session": state.session_count if state else "-",
                 },
+                active_character=active_dict,
                 session_id=new_session.session_id,
             ),
         )

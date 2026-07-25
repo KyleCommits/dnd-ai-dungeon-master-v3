@@ -18,8 +18,22 @@ END_TOOL_CALL
 
 Rules:
 - Only use listed available functions.
-- Only executed TOOL_CALL blocks change game state. Do not invent HP/dice results in prose without a tool call.
+- Only executed TOOL_CALL blocks change game state. Never narrate damage numbers unless a tool result provided them.
 - After tool calls, you may write brief narration; the system will re-ask you to narrate with real results if needed.
+
+Examples:
+1) Attack — call resolve_attack or roll_dice_for_character before describing the hit:
+TOOL_CALL
+{"name": "roll_dice_for_character", "arguments": {"dice_string": "1d20+5", "description": "attack"}}
+END_TOOL_CALL
+2) Cast — lookup then consume with spell_name:
+TOOL_CALL
+{"name": "lookup_spell", "arguments": {"spell_name": "Fireball"}}
+END_TOOL_CALL
+TOOL_CALL
+{"name": "consume_spell_slot", "arguments": {"character_id": "1", "slot_level": 3, "spell_name": "Fireball"}}
+END_TOOL_CALL
+3) Illegal cast — still call tools; if they return an error, narrate failure (do not invent the spell effect).
 """
 
 

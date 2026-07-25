@@ -32,7 +32,7 @@ Sit down alone, play a long-running campaign, leave, and come back later with co
 
 **Next (playtest polish — do before Phase 5):**
 
-1. **Tool compliance** — local LLM often narrates instead of calling tools (e.g. Fighter “casts fireball” should lookup/reject or require a caster)
+1. **Tool compliance (MVP shipped)** — TOOL_CALL harden + cast legality; **clarify-first intent** (vague `I attack` asks how; does not invent outcomes). Still playtest richer AUTO resolves after clarification.
 2. **Stronger grounding** — force `set_location` / world-state context so “where am I?” isn’t a generic tavern loop
 3. **Latency** — ~30–90s per reply on 4080 mobile + 8B is expected; shorter prompts / smaller or 4-bit model later
 
@@ -86,7 +86,11 @@ DISCORD_TOKEN=unused
 BOT_CHANNEL_ID=0
 OWNER_ID=0
 LOCAL_MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
+INTENT_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
+INTENT_DEVICE=cpu
 ```
+
+Intent parsing uses a **small** local model (default Qwen 0.5B on CPU) that outputs JSON only. The 8B model narrates; the engine resolves combat/spells. First chat line may download the intent model.
 
 Postgres setup: [`scripts/LOCAL_DB_SETUP.md`](scripts/LOCAL_DB_SETUP.md).
 

@@ -49,7 +49,7 @@ def render_help(width: int = 64) -> str:
         "/campaigns            list campaign files",
         "/load <name>          load campaign",
         "/playtest [camp] [char]  load default campaign + Test Fighter",
-        "/session start|end    start or end session (end saves summary+memory)",
+        "/session start|end    start or end session (aliases: /session_start, /session_end)",
         "",
         "/chars                list characters",
         "/active <id|name>     set active character",
@@ -74,5 +74,7 @@ def render_help(width: int = 64) -> str:
         "/unequip <item>       unequip item",
         "",
         "/roll <NdM[+/-K]>     dice roll",
+        "",
+        "Attacks in chat: say what you attack; system asks how, then rolls for you.",
     ]
     return box(rows, title="ASCII Terminal Help", width=width)

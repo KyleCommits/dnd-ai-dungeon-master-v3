@@ -11,6 +11,15 @@
 
   let ws = null;
   let sessionId = USER_ID;
+  let busy = false; // block double-submit while command/chat is in flight
+  let lastDmBody = "";
+
+  function setBusy(on) {
+    busy = !!on;
+    inputEl.disabled = busy;
+    const btn = formEl.querySelector("button");
+    if (btn) btn.disabled = busy;
+  }
 
   function appendLog(text, cls) {
     const line = document.createElement("div");
@@ -83,7 +92,14 @@
           // Already shown locally in sendChat; skip broadcast echo
           return;
         } else if (type === "dm_response" || type === "dm") {
+          // Ignore exact duplicate back-to-back DM payloads (double-submit / double broadcast)
+          if (body === lastDmBody) {
+            setBusy(false);
+            return;
+          }
+          lastDmBody = body;
           appendLog(`DM: ${body}`, "log-dm");
+          setBusy(false);
         } else {
           appendLog(`[${type}] ${body}`, "log-system");
         }
@@ -95,6 +111,11 @@
   }
 
   async function runCommand(command) {
+    if (busy) {
+      appendLog("ERROR: wait for the current command to finish", "log-error");
+      return;
+    }
+    setBusy(true);
     appendLog(`> ${command}`, "log-user");
     try {
       const res = await fetch("/api/terminal/command", {
@@ -114,16 +135,28 @@
       await refreshStatus();
     } catch (err) {
       appendLog(`ERROR: ${err}`, "log-error");
+    } finally {
+      setBusy(false);
     }
   }
 
   function sendChat(message) {
-    appendLog(`You: ${message}`, "log-user");
+    if (busy) {
+      appendLog("ERROR: wait for the current reply to finish", "log-error");
+      return;
+    }
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       appendLog("ERROR: WebSocket offline", "log-error");
       return;
     }
+    setBusy(true);
+    lastDmBody = "";
+    appendLog(`You: ${message}`, "log-user");
     ws.send(JSON.stringify({ type: "chat", message }));
+    // busy clears when dm_response arrives (or after timeout)
+    setTimeout(() => {
+      if (busy) setBusy(false);
+    }, 180000);
   }
 
   formEl.addEventListener("submit", (e) => {

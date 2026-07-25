@@ -11,13 +11,60 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from .game_actions import game_actions
+from .mechanics_claims import (
+    IntentTier,
+    clarification_prompt,
+    classify_player_intent,
+    extract_cast_spell_name,
+    prose_claims_mechanics,
+)
+from .pending_clarify import (
+    resolve_pending_followup,
+    set_pending_clarify,
+)
 
 logger = logging.getLogger(__name__)
 
 TOOL_CALL_RE = re.compile(
-    r"TOOL_CALL\s*\n\s*(\{.*?\})\s*\n\s*END_TOOL_CALL",
+    r"TOOL_CALL\s*\n+\s*(.*?)\s*\n+\s*END_TOOL_CALL",
     re.DOTALL | re.IGNORECASE,
 )
+
+FORCE_RETRY_NUDGE = (
+    "SYSTEM: Mechanics were required but you emitted no valid TOOL_CALL. "
+    "Emit the required TOOL_CALL / END_TOOL_CALL block(s) now using available "
+    "functions, or explicitly say that no game state changes. Do not invent numbers."
+)
+
+CAST_FORCE_NUDGE = (
+    "SYSTEM: The player attempted to CAST A SPELL. You MUST emit TOOL_CALL blocks now: "
+    "lookup_spell then consume_spell_slot with spell_name and the active character_id. "
+    "If tools return an error (e.g. Fighter cannot cast), narrate the failure — "
+    "do NOT describe a successful spell."
+)
+
+NONBINDING_NOTE = (
+    "[system] No tools ran; treat narrative numbers as non-binding."
+)
+
+
+def _normalize_tool_json(raw: str) -> str:
+    """Strip fences and light-repair trailing commas before json.loads."""
+    s = (raw or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s*```\s*$", "", s)
+    s = s.strip()
+    s = re.sub(r",\s*}", "}", s)
+    s = re.sub(r",\s*]", "]", s)
+    return s.strip()
+
+
+def count_tool_call_markers(text: str) -> int:
+    """Count TOOL_CALL open markers (for detecting failed parse attempts)."""
+    if not text:
+        return 0
+    return len(re.findall(r"\bTOOL_CALL\b", text, flags=re.IGNORECASE))
 
 
 def extract_tool_calls(text: str) -> List[Dict[str, Any]]:
@@ -28,10 +75,15 @@ def extract_tool_calls(text: str) -> List[Dict[str, Any]]:
 
     for match in TOOL_CALL_RE.finditer(text):
         raw = match.group(1).strip()
+        normalized = _normalize_tool_json(raw)
         try:
-            payload = json.loads(raw)
+            payload = json.loads(normalized)
         except json.JSONDecodeError as e:
-            logger.warning("Invalid TOOL_CALL JSON: %s (%s)", raw, e)
+            logger.warning(
+                "Invalid TOOL_CALL JSON (unparseable block): %s (%s)",
+                raw[:200],
+                e,
+            )
             continue
 
         name = payload.get("name")
@@ -46,6 +98,13 @@ def extract_tool_calls(text: str) -> List[Dict[str, Any]]:
             continue
         calls.append({"name": name, "arguments": arguments})
 
+    markers = count_tool_call_markers(text)
+    if markers and not calls:
+        logger.warning(
+            "TOOL_CALL markers present (%d) but no valid blocks parsed",
+            markers,
+        )
+
     return calls
 
 
@@ -54,7 +113,6 @@ def strip_tool_calls(text: str) -> str:
     if not text:
         return ""
     cleaned = TOOL_CALL_RE.sub("", text)
-    # collapse excess blank lines
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 
@@ -132,6 +190,147 @@ async def execute_tool_calls(
     return results
 
 
+def _should_force_tool_retry(
+    text: str,
+    calls: List[Dict[str, Any]],
+    player_message: Optional[str] = None,
+    intent_tier: Optional[IntentTier] = None,
+) -> bool:
+    """Force a re-ask if prose invents mechanics, markers failed, or AUTO intent needs tools."""
+    if calls:
+        return False
+    if intent_tier == IntentTier.AUTO:
+        return True
+    if intent_tier == IntentTier.CLARIFY:
+        return False
+    if prose_claims_mechanics(text):
+        return True
+    if count_tool_call_markers(text) > 0:
+        return True
+    return False
+
+
+async def _backend_cast_tools(
+    player_message: str,
+    character_id: str,
+    allowed: Set[str],
+) -> List[Dict[str, Any]]:
+    """When the LLM skips tools on a cast attempt, run lookup + consume ourselves."""
+    spell_name = extract_cast_spell_name(player_message)
+    if not spell_name or not character_id:
+        return []
+    if "lookup_spell" not in allowed and "consume_spell_slot" not in allowed:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    if "lookup_spell" in allowed:
+        results = await execute_tool_calls(
+            [{"name": "lookup_spell", "arguments": {"spell_name": spell_name}}],
+            allowed_names=allowed,
+        )
+
+    spell_level = 1
+    lookup_ok = False
+    for item in results:
+        res = item.get("result") or {}
+        if item.get("name") == "lookup_spell" and res.get("success"):
+            lookup_ok = True
+            try:
+                spell_level = int(res.get("level") if res.get("level") is not None else 1)
+            except (TypeError, ValueError):
+                spell_level = 1
+
+    if not lookup_ok and results:
+        return results  # unknown spell — surface lookup error
+
+    if spell_level == 0:
+        legality = await game_actions._validate_spell_cast(str(character_id), spell_name)
+        results.append({
+            "name": "consume_spell_slot",
+            "arguments": {"character_id": str(character_id), "spell_name": spell_name},
+            "result": legality if not legality.get("success") else {
+                "success": True,
+                "message": f"Cantrip {spell_name} allowed (no slot spent).",
+            },
+        })
+        return results
+
+    if "consume_spell_slot" in allowed:
+        consume_results = await execute_tool_calls(
+            [{
+                "name": "consume_spell_slot",
+                "arguments": {
+                    "character_id": str(character_id),
+                    "slot_level": max(spell_level, 1),
+                    "spell_name": spell_name,
+                },
+            }],
+            allowed_names=allowed,
+        )
+        results.extend(consume_results)
+
+    return results
+
+
+async def _backend_resolve_attack_reply(
+    working_message: str,
+    character_id: str,
+    allowed: Set[str],
+    user_id: Optional[str] = None,
+) -> Optional[str]:
+    """Full attack resolve without calling the LLM (solo default)."""
+    from .attack_resolve import format_attack_reply, parse_attack_utterance
+
+    target_name, method = parse_attack_utterance(working_message)
+    if not target_name:
+        target_name = "object"
+    # Empty method → inventory chooser (equipped / clarify). Do NOT default to unarmed.
+    method = method or ""
+
+    args = {
+        "character_id": str(character_id),
+        "target_name": target_name,
+        "method": method,
+        "target_kind": "object",
+    }
+
+    def _handle_result(res: Dict[str, Any]) -> Optional[str]:
+        if res.get("success"):
+            return format_attack_reply(res)
+        if res.get("needs_clarify"):
+            prompt = res.get("message") or res.get("prompt") or "Which weapon?"
+            if user_id:
+                set_pending_clarify(
+                    user_id,
+                    "attack_weapon",
+                    working_message,
+                    options=res.get("options") or [],
+                )
+            return prompt
+        if res.get("error"):
+            return f"ERROR: {res['error']}"
+        return None
+
+    if "resolve_player_attack" in allowed:
+        auto_results = await execute_tool_calls(
+            [{"name": "resolve_player_attack", "arguments": args}],
+            allowed_names=allowed,
+        )
+        res = (auto_results[0].get("result") if auto_results else None) or {}
+        handled = _handle_result(res)
+        if handled:
+            return handled
+        if auto_results and auto_results[0].get("error"):
+            return f"ERROR: {auto_results[0]['error']}"
+        return None
+
+    res = await game_actions.resolve_player_attack(**args)
+    handled = _handle_result(res)
+    if handled:
+        return handled
+    return f"ERROR: {res.get('error') or res.get('message') or 'attack failed'}"
+
+
 async def run_tool_loop(
     initial_prompt: str,
     available_functions: List[Dict[str, Any]],
@@ -139,48 +338,255 @@ async def run_tool_loop(
     max_rounds: int = 2,
     max_new_tokens: int = 250,
     max_narration_tokens: int = 200,
+    max_force_retries: int = 1,
+    player_message: Optional[str] = None,
+    character_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    weapon_names: Optional[List[str]] = None,
 ) -> str:
     """
-    Generate → parse tools → execute → (optional) second generate with results.
+    Layer 1 intent → resolve attack/cast on engine → else DM generate/tools.
 
-    generate_fn(prompt, max_new_tokens=, available_functions=) -> str
+    LLM narration never decides hit/damage/slots; resolve_intent is authority.
     """
+    from . import player_intent as player_intent_mod
+    from .intent_resolver import resolve_intent
+
     allowed = {f["name"] for f in available_functions}
+    working_message = player_message or ""
+    uid = user_id or "player1"
+
+    # Answer to a prior clarifying question (e.g. "i use my sword" after "how do you attack?")
+    resolved = resolve_pending_followup(uid, working_message)
+    if resolved:
+        working_message, intent_tier, intent_subtype = resolved
+    else:
+        intent_tier, intent_subtype = classify_player_intent(working_message)
+
+    # Pending follow-up: player already named a weapon/number — rules merge is enough
+    if resolved and intent_subtype in ("attack_clear", "attack", "attack_weapon"):
+        player_intent = player_intent_mod.intent_from_rules(working_message)
+        player_intent.source = "pending"
+    else:
+        # Natural language → small IntentLLM (not the DM 8B model)
+        player_intent = await player_intent_mod.parse_player_intent(
+            working_message,
+            weapon_names=weapon_names,
+            use_intent_llm=True,
+        )
+
+    cast_spell = player_intent.spell_name or extract_cast_spell_name(working_message)
+
+    # Layer 2–3: attack / cast / clarify via resolve_intent (before DM LLM)
+    if player_intent.action in ("attack", "cast", "unclear") or player_intent.needs_clarify:
+        outcome = await resolve_intent(
+            player_intent, character_id, allowed, user_id=uid
+        )
+        if outcome.handled:
+            # Successful cast: optional short narration from tool results only
+            if (
+                player_intent.action == "cast"
+                and outcome.results
+                and "cast blocked" not in (outcome.reply or "")
+                and character_id
+            ):
+                mechanics = outcome.reply
+                narr_prompt = (
+                    f"{initial_prompt}\n\n"
+                    f"The player cast a spell. REAL tool results:\n{mechanics}\n\n"
+                    f"Write 2-4 sentences of DM narration using ONLY these results. "
+                    f"Do NOT emit TOOL_CALL blocks."
+                )
+                try:
+                    narr = await generate_fn(
+                        narr_prompt,
+                        max_new_tokens=max_narration_tokens,
+                        available_functions=[],
+                    )
+                    cleaned = strip_tool_calls(narr or "")
+                    if cleaned and "cast blocked" not in cleaned.lower():
+                        return f"{cleaned}\n\n{mechanics}".strip()
+                except Exception:
+                    logger.exception("cast narration failed; returning mechanics")
+                return mechanics
+            return outcome.reply
+
+    # Legacy tier clarify (dash/hide/etc. not yet on PlayerIntent actions)
+    if intent_tier == IntentTier.CLARIFY and player_intent.action == "speak":
+        set_pending_clarify(uid, intent_subtype, working_message)
+        return clarification_prompt(intent_subtype)
+
     prompt = initial_prompt
+    if resolved:
+        prompt = (
+            f"{initial_prompt}\n\n"
+            f"CLARIFICATION RESOLVED — the player's full action is now:\n"
+            f"\"{working_message}\"\n"
+            f"Resolve THIS with TOOL_CALL (e.g. roll_dice_for_character for an attack/smash). "
+            f"Do not change the subject to unrelated tavern banter."
+        )
     last_text = ""
+    force_retries_used = 0
+    funcs_for_gen = available_functions
+    pending_mechanics = ""
+    pending_results: List[Dict[str, Any]] = []
+    base_prompt = prompt
+
+    def _cast_failed(results: List[Dict[str, Any]]) -> Optional[str]:
+        """Human message if lookup/consume rejected the cast."""
+        for item in results:
+            name = item.get("name")
+            if name not in ("consume_spell_slot", "lookup_spell"):
+                continue
+            if item.get("error"):
+                return str(item["error"])
+            res = item.get("result") or {}
+            if res.get("success") is False:
+                return res.get("message") or res.get("error") or "Casting failed."
+        return None
+
+    def _hard_cast_refusal(results: List[Dict[str, Any]], mechanics: str) -> str:
+        """Do not trust the LLM to honor a failed cast — return a fixed refusal."""
+        err = _cast_failed(results) or "Casting failed."
+        spell = cast_spell or "that spell"
+        # Keep player-facing text short; full JSON dumps confuse the log.
+        return (
+            f"You begin the gestures for {spell}, but nothing happens. {err} "
+            f"No spell effect takes place.\n\n[mechanics] cast blocked: {err}"
+        )
 
     for round_idx in range(max_rounds):
         text = await generate_fn(
             prompt,
             max_new_tokens=max_new_tokens,
-            available_functions=available_functions,
+            available_functions=funcs_for_gen,
         )
         last_text = text or ""
         calls = extract_tool_calls(last_text)
 
+        # Force re-ask when AUTO intent / claims / broken markers and no tools
+        if (
+            round_idx == 0
+            and force_retries_used < max_force_retries
+            and funcs_for_gen
+            and _should_force_tool_retry(
+                last_text, calls, player_message=player_message, intent_tier=intent_tier
+            )
+        ):
+            force_retries_used += 1
+            nudge = CAST_FORCE_NUDGE if cast_spell else FORCE_RETRY_NUDGE
+            if intent_subtype == "attack_clear":
+                nudge = (
+                    "SYSTEM: The player is attacking with a stated method. "
+                    "Emit roll_dice_for_character (or resolve_attack if in combat) NOW. "
+                    "Do not invent hit/damage without a tool; do not ignore the attack."
+                )
+            prompt = (
+                f"{base_prompt}\n\n"
+                f"Your previous reply (invalid for mechanics):\n{strip_tool_calls(last_text) or last_text}\n\n"
+                f"{nudge}"
+            )
+            text = await generate_fn(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                available_functions=funcs_for_gen,
+            )
+            last_text = text or ""
+            calls = extract_tool_calls(last_text)
+
         if not calls:
-            return strip_tool_calls(last_text)
+            # Narration round after tools already ran — keep mechanics, never NONBINDING
+            if pending_mechanics:
+                cleaned = strip_tool_calls(last_text)
+                if cast_spell and _cast_failed(pending_results):
+                    return _hard_cast_refusal(pending_results, pending_mechanics)
+                if cleaned:
+                    return f"{cleaned}\n\n{pending_mechanics}".strip()
+                return pending_mechanics
+
+            # Backend safety net for AUTO cast attempts the model soft-narrated past
+            if (
+                intent_tier == IntentTier.AUTO
+                and cast_spell
+                and character_id
+                and funcs_for_gen
+            ):
+                auto_results = await _backend_cast_tools(
+                    working_message, str(character_id), allowed
+                )
+                if auto_results:
+                    mechanics = format_mechanics_summary(auto_results)
+                    if _cast_failed(auto_results):
+                        return _hard_cast_refusal(auto_results, mechanics)
+                    narr_prompt = (
+                        f"{base_prompt}\n\n"
+                        f"The player tried to cast a spell. Here are the REAL tool results "
+                        f"(backend-enforced because you skipped TOOL_CALL):\n{mechanics}\n\n"
+                        f"Write 2-4 sentences of DM narration using ONLY these results. "
+                        f"If casting failed, the spell does not happen. "
+                        f"Ignore any earlier chat where a spell seemed to work without tools. "
+                        f"Do NOT emit TOOL_CALL blocks."
+                    )
+                    narr = await generate_fn(
+                        narr_prompt,
+                        max_new_tokens=max_narration_tokens,
+                        available_functions=[],
+                    )
+                    cleaned = strip_tool_calls(narr or "")
+                    return f"{cleaned}\n\n{mechanics}".strip() if cleaned else mechanics
+
+            # Fallback if early attack resolve was skipped (no character_id earlier)
+            if (
+                intent_tier == IntentTier.AUTO
+                and intent_subtype == "attack_clear"
+                and character_id
+            ):
+                reply = await _backend_resolve_attack_reply(
+                    working_message, str(character_id), allowed, user_id=uid
+                )
+                if reply:
+                    return reply
+
+            cleaned = strip_tool_calls(last_text)
+            # NONBINDING only when prose invents numbers, or AUTO still has no tools
+            if prose_claims_mechanics(cleaned) or (
+                intent_tier == IntentTier.AUTO
+                and _should_force_tool_retry(
+                    last_text, calls, player_message=working_message, intent_tier=intent_tier
+                )
+            ):
+                if cleaned:
+                    return f"{cleaned}\n\n{NONBINDING_NOTE}".strip()
+                return NONBINDING_NOTE
+            return cleaned
 
         results = await execute_tool_calls(calls, allowed_names=allowed)
         mechanics = format_mechanics_summary(results)
         cleaned = strip_tool_calls(last_text)
+        pending_mechanics = mechanics
+        pending_results = results
 
-        # Final round or prepare follow-up narration
+        # Failed cast: do not ask the LLM to narrate (it will invent explosions from history)
+        if cast_spell and _cast_failed(results):
+            return _hard_cast_refusal(results, mechanics)
+
         if round_idx >= max_rounds - 1:
             if cleaned:
                 return f"{cleaned}\n\n{mechanics}".strip()
             return mechanics
 
         prompt = (
-            f"{initial_prompt}\n\n"
+            f"{base_prompt}\n\n"
             f"You previously requested tool calls. Here are the REAL results:\n"
             f"{mechanics}\n\n"
             f"Your draft (tool blocks removed):\n{cleaned or '(none)'}\n\n"
             f"Write the final DM narration for the player using these results. "
-            f"Do NOT emit TOOL_CALL blocks this time. Keep it concise (2-4 sentences)."
+            f"If a cast/attack FAILED, that action did not happen — do not continue a prior "
+            f"invented scene. Do NOT emit TOOL_CALL blocks. Keep it concise (2-4 sentences)."
         )
-        # Next iteration: generate without tools so we get clean narration
-        available_functions = []  # no tools on follow-up
+        funcs_for_gen = []
         max_new_tokens = max_narration_tokens
 
+    if pending_mechanics:
+        return f"{strip_tool_calls(last_text)}\n\n{pending_mechanics}".strip()
     return strip_tool_calls(last_text)

@@ -96,7 +96,10 @@ class DynamicDM:
             },
             {
                 "name": "consume_spell_slot",
-                "description": "consume a spell slot for casting",
+                "description": (
+                    "Consume a spell slot when a character casts a leveled spell. "
+                    "Always pass spell_name; illegals (non-caster / not known) return an error — narrate the failure."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -108,12 +111,16 @@ class DynamicDM:
                             "type": "integer",
                             "description": "spell slot level to consume"
                         },
+                        "spell_name": {
+                            "type": "string",
+                            "description": "exact spell name (required for legality check)"
+                        },
                         "reason": {
                             "type": "string",
-                            "description": "spell being cast"
+                            "description": "optional note"
                         }
                     },
-                    "required": ["character_id", "slot_level"]
+                    "required": ["character_id", "slot_level", "spell_name"]
                 }
             },
             {
@@ -342,6 +349,26 @@ class DynamicDM:
                 }
             },
             {
+                "name": "resolve_player_attack",
+                "description": (
+                    "Resolve a PC attack against an object or creature: rolls attack+damage, "
+                    "applies object HP. Use for 'I attack the table with my sword' style actions."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "character_id": {"type": "string"},
+                        "target_name": {"type": "string", "description": "e.g. table, goblin"},
+                        "method": {"type": "string", "description": "weapon or unarmed"},
+                        "target_kind": {
+                            "type": "string",
+                            "description": "object or creature (optional)",
+                        },
+                    },
+                    "required": ["character_id", "target_name", "method"],
+                },
+            },
+            {
                 "name": "next_combat_turn",
                 "description": "advance to the next combatant's turn",
                 "parameters": {
@@ -455,6 +482,7 @@ RESPONSE RULES:
             )
 
             active_character_info = await self._get_active_character_info(user_id, campaign_id)
+            active_character_id = await self._get_active_character_id(user_id, campaign_id)
 
             function_prompt = f"""{massive_context_prompt}
 
@@ -463,10 +491,17 @@ ACTIVE CHARACTER INFO:
 
 FUNCTION CALLING INSTRUCTIONS:
 - To change game state you MUST emit TOOL_CALL / END_TOOL_CALL blocks (see protocol in system tools section).
+- Never narrate damage/HP/dice numbers unless a tool result provided them.
+- Incomplete actions (vague attack, dash, sneak without detail): ask ONE clarifying question; do not resolve hit/damage/success yet.
+- Never continue a prior invented disaster if tools or clarification say otherwise.
+- Examples:
+  (1) Attack with a clear weapon/target: emit resolve_player_attack (objects) or resolve_attack (combat) before saying hit/miss/damage.
+  (2) Cast: lookup_spell then consume_spell_slot with spell_name (and character_id, slot_level).
+  (3) Illegal cast (e.g. Fighter Fireball): call the tools; if they error, narrate the failure — do not invent a fireball.
 - Use modify_hp when characters take damage or heal outside structured combat
 - Use roll_dice_for_character for ability checks and saving throws
 - Use apply_condition for status effects
-- Use consume_spell_slot when characters cast leveled spells
+- Use consume_spell_slot when characters cast leveled spells (always include spell_name)
 - Use trigger_rest for short/long rests
 - Use update_inventory / equip_item / unequip_item for gear
 - Use lookup_spell / lookup_monster / lookup_item before inventing stats (local DB only)
@@ -487,6 +522,8 @@ FUNCTION CALLING INSTRUCTIONS:
                     available_functions=available_functions,
                 )
 
+            weapon_names = await self._get_active_weapon_names(user_id, campaign_id)
+
             dm_response = await run_tool_loop(
                 function_prompt,
                 self.available_functions,
@@ -494,11 +531,35 @@ FUNCTION CALLING INSTRUCTIONS:
                 max_rounds=2,
                 max_new_tokens=250,
                 max_narration_tokens=180,
+                player_message=player_message,
+                character_id=str(active_character_id) if active_character_id else None,
+                user_id=user_id,
+                weapon_names=weapon_names,
             )
             return self._clean_response(dm_response)
         except Exception as e:
             logging.error(f"Error generating contextual response: {e}", exc_info=True)
             return "The DM stumbles, momentarily losing the thread of the story."
+
+    async def _resolve_active_character(self, user_id: str, campaign_id: Optional[int]):
+        if campaign_id is None:
+            return None
+        async with async_session_scope() as db:
+            character = await character_manager.get_active_character(db, user_id, campaign_id)
+            if not character:
+                chars = await character_manager.get_user_characters(db, user_id, campaign_id)
+                character = chars[0] if chars else None
+            return character
+
+    async def _get_active_character_id(
+        self, user_id: str = "player1", campaign_id: Optional[int] = None
+    ) -> Optional[int]:
+        try:
+            character = await self._resolve_active_character(user_id, campaign_id)
+            return character.id if character else None
+        except Exception as e:
+            print(f"ERROR: error getting active character id: {e}")
+            return None
 
     async def _get_active_character_info(
         self, user_id: str = "player1", campaign_id: Optional[int] = None
@@ -508,27 +569,41 @@ FUNCTION CALLING INSTRUCTIONS:
             if campaign_id is None:
                 return "No active character (no campaign id). Tool calls needing character_id will fail until one is selected."
 
-            async with async_session_scope() as db:
-                character = await character_manager.get_active_character(db, user_id, campaign_id)
-                if not character:
-                    # fallback: first character for this user in campaign
-                    chars = await character_manager.get_user_characters(db, user_id, campaign_id)
-                    character = chars[0] if chars else None
-
-                if not character:
-                    return (
-                        f"No active character for user={user_id} campaign_id={campaign_id}. "
-                        "Ask the player to select a character before combat/tool actions."
-                    )
-
+            character = await self._resolve_active_character(user_id, campaign_id)
+            if not character:
                 return (
-                    f"Active Character: {character.name} (ID: {character.id}) - "
-                    f"Level {character.level} {character.race} {character.class_name} - "
-                    f"HP: {character.current_hp}/{character.max_hp} - AC: {character.armor_class}"
+                    f"No active character for user={user_id} campaign_id={campaign_id}. "
+                    "Ask the player to select a character before combat/tool actions."
                 )
+
+            return (
+                f"Active Character: {character.name} (ID: {character.id}) - "
+                f"Level {character.level} {character.race} {character.class_name} - "
+                f"HP: {character.current_hp}/{character.max_hp} - AC: {character.armor_class}"
+            )
         except Exception as e:
             print(f"ERROR: error getting active character info: {e}")
             return f"Error getting character info: {e}"
+
+    async def _get_active_weapon_names(
+        self, user_id: str = "player1", campaign_id: Optional[int] = None
+    ) -> List[str]:
+        """Inventory weapon names for Layer-1 intent hints (engine still validates ownership)."""
+        try:
+            from .weapon_choose import is_inventory_weapon
+
+            character = await self._resolve_active_character(user_id, campaign_id)
+            if not character:
+                return []
+            names: List[str] = []
+            for eq in getattr(character, "equipment", None) or []:
+                name = getattr(eq, "item_name", None)
+                if name and is_inventory_weapon(name):
+                    names.append(name)
+            return names
+        except Exception as e:
+            print(f"ERROR: error getting weapon names: {e}")
+            return []
 
     def _format_conversation_history(self, history: List[ChatMessage]) -> str:
         if not history:

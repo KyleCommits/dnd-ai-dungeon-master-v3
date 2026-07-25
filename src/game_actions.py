@@ -89,13 +89,105 @@ class GameActions:
             print(f"ERROR: error modifying hp for character {character_id}: {e}")
             return {"success": False, "error": str(e)}
 
-    async def consume_spell_slot(self, character_id: str, slot_level: int, reason: str = "") -> Dict[str, Any]:
-        """consume a spell slot for casting; persists used slots"""
+    async def _validate_spell_cast(self, character_id: str, spell_name: str) -> Dict[str, Any]:
+        """Reject illegal casts (non-caster, unknown spell, not known/prepared)."""
+        name = (spell_name or "").strip()
+        if not name:
+            return {"success": True}
+
+        try:
+            from .enhanced_spell_system import enhanced_spell_manager
+
+            enhanced_spell_manager.initialize()
+            spell = enhanced_spell_manager.get_spell(name)
+            if not spell:
+                return {
+                    "success": False,
+                    "error": f"spell not found: {name}",
+                    "message": f"Cannot cast '{name}' — spell not in local rules DB.",
+                }
+
+            async with async_session_scope() as db:
+                spell_data = await self.spell_manager.get_character_spells(db, int(character_id))
+                if not spell_data:
+                    return {"success": False, "error": f"character {character_id} not found"}
+
+                if not spell_data.get("is_spellcaster"):
+                    cls = spell_data.get("class_name", "this class")
+                    return {
+                        "success": False,
+                        "error": f"{cls} cannot cast spells",
+                        "message": f"{spell_data.get('character_name', 'Character')} ({cls}) cannot cast {spell.name}.",
+                    }
+
+                # Prefer character spellbook (known + prepared)
+                known_prepared = False
+                for level_spells in (spell_data.get("spells_by_level") or {}).values():
+                    for entry in level_spells:
+                        sp = entry.get("spell")
+                        sp_name = getattr(sp, "name", None) or (sp.get("name") if isinstance(sp, dict) else None)
+                        if sp_name and sp_name.lower() == spell.name.lower():
+                            if entry.get("is_known") or entry.get("is_prepared"):
+                                if spell.level == 0 or entry.get("is_prepared"):
+                                    known_prepared = True
+                                    break
+                    if known_prepared:
+                        break
+
+                if known_prepared:
+                    return {"success": True, "spell_name": spell.name, "spell_level": spell.level}
+
+                # Fallback: on class list (spellbook may be empty for new casters)
+                class_spells = enhanced_spell_manager.get_class_spells(
+                    spell_data.get("class_name", ""), 9
+                )
+                on_list = any(s.name.lower() == spell.name.lower() for s in class_spells)
+                if not on_list:
+                    return {
+                        "success": False,
+                        "error": f"{spell.name} not available to {spell_data.get('class_name')}",
+                        "message": (
+                            f"{spell_data.get('character_name', 'Character')} cannot cast "
+                            f"{spell.name} (not on class list / not known)."
+                        ),
+                    }
+
+                # On class list but not prepared for prepared casters
+                prepared_casters = {"Cleric", "Druid", "Paladin", "Wizard", "Artificer"}
+                cls = spell_data.get("class_name", "")
+                if cls in prepared_casters and spell.level > 0:
+                    return {
+                        "success": False,
+                        "error": f"{spell.name} not prepared",
+                        "message": f"{spell.name} is not prepared.",
+                    }
+
+                return {"success": True, "spell_name": spell.name, "spell_level": spell.level}
+        except Exception as e:
+            logger.exception("spell cast validation failed")
+            return {"success": False, "error": str(e)}
+
+    async def consume_spell_slot(
+        self,
+        character_id: str,
+        slot_level: int,
+        reason: str = "",
+        spell_name: str = "",
+    ) -> Dict[str, Any]:
+        """Consume a spell slot for casting; validates spell legality when a name is given."""
+        # Only enforce legality when spell_name is provided (AI casting path).
+        # Bare slot consume (tests / legacy) without spell_name still works.
+        if (spell_name or "").strip():
+            legality = await self._validate_spell_cast(character_id, spell_name.strip())
+            if not legality.get("success"):
+                return legality
+
         try:
             async with async_session_scope() as db:
                 result = await self.spell_manager.consume_spell_slot(db, int(character_id), slot_level)
-                if result.get("success") and reason:
-                    result["message"] = f"{result.get('message', '')} ({reason})"
+                if result.get("success") and (spell_name or reason):
+                    label = (spell_name or reason).strip()
+                    result["message"] = f"{result.get('message', '')} ({label})".strip()
                 return result
         except Exception as e:
             print(f"ERROR: error consuming spell slot for character {character_id}: {e}")
@@ -476,6 +568,175 @@ class GameActions:
             return {"success": False, "error": status["error"]}
         status["success"] = True
         return status
+
+    async def resolve_player_attack(
+        self,
+        character_id: str,
+        target_name: str,
+        method: str = "",
+        target_kind: str = "",
+        campaign_name: str = "",
+        location: str = "",
+        prior_weapon_options: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """
+        Full attack resolution for solo play: d20+bonus vs AC, damage, object/creature effect.
+        Weapon comes from inventory (chooser); backend rolls for the player.
+        """
+        from .attack_resolve import ability_mod
+        from .scene_objects import scene_object_store
+        from .campaign_state_manager import campaign_state_manager
+        from .weapon_choose import choose_weapon_from_inventory, normalize_hint
+
+        try:
+            async with async_session_scope() as db:
+                result = await db.execute(
+                    select(Character)
+                    .options(
+                        selectinload(Character.abilities),
+                        selectinload(Character.equipment),
+                    )
+                    .where(Character.id == int(character_id))
+                )
+                character = result.scalar_one_or_none()
+                if not character:
+                    return {"success": False, "error": f"character {character_id} not found"}
+
+                abilities = character.abilities[0] if character.abilities else None
+                str_score = getattr(abilities, "strength", 10) if abilities else 10
+                dex_score = getattr(abilities, "dexterity", 10) if abilities else 10
+                prof = int(getattr(character, "proficiency_bonus", 2) or 2)
+
+                equipment = [
+                    (eq.item_name, bool(eq.equipped))
+                    for eq in (character.equipment or [])
+                    if getattr(eq, "quantity", 1) and int(getattr(eq, "quantity", 1) or 0) > 0
+                ]
+
+                hint = method or ""
+                numbered = None
+                nh = normalize_hint(hint)
+                if nh.isdigit():
+                    numbered = int(nh)
+
+                choice = choose_weapon_from_inventory(
+                    equipment,
+                    method_hint=hint,
+                    numbered_pick=numbered,
+                    prior_options=prior_weapon_options,
+                )
+                if choice.status != "ok":
+                    return {
+                        "success": False,
+                        "needs_clarify": True,
+                        "message": choice.prompt or "Which weapon?",
+                        "options": choice.options,
+                        "target_name": (target_name or "object").strip(),
+                    }
+
+                use_dex = choice.finesse and ability_mod(dex_score) > ability_mod(str_score)
+                if choice.ability == "dexterity":
+                    use_dex = True
+                abl_mod = ability_mod(dex_score if use_dex else str_score)
+                # Fighters/martial: assume weapon proficiency for inventory weapons + unarmed
+                attack_bonus = abl_mod + prof
+                damage_dice = choice.damage_dice or "1d4"
+                weapon_label = choice.weapon_name or "unarmed"
+
+                kind = (target_kind or "").strip().lower()
+                tname = (target_name or "object").strip()
+
+                # Creature path: match active encounter combatant by name
+                if kind != "object":
+                    for enc in getattr(self.combat_manager, "active_encounters", {}).values():
+                        if not getattr(enc, "is_active", False):
+                            continue
+                        for c in getattr(enc, "combatants", []) or []:
+                            if c.name.lower() == tname.lower() and not getattr(c, "is_player", False):
+                                attacker = next(
+                                    (
+                                        x
+                                        for x in enc.combatants
+                                        if getattr(x, "character_id", None) == int(character_id)
+                                    ),
+                                    None,
+                                )
+                                if attacker:
+                                    return await self.resolve_attack(enc.id, attacker.id, c.id)
+                                kind = "creature"
+                                break
+
+                if kind != "creature":
+                    kind = "object"
+
+                atk_roll = self.dice_roller.roll_dice(
+                    1, 20, attack_bonus, AdvantageType.NORMAL, "attack"
+                )
+                attack_total = atk_roll.total
+
+                if kind == "object":
+                    state = campaign_state_manager.current_state
+                    camp = campaign_name or (state.campaign_name if state else "default")
+                    loc = location or (state.location if state else "here")
+                    obj = scene_object_store.get_or_create(camp, loc, tname)
+                    if obj.destroyed:
+                        return {
+                            "success": True,
+                            "hit": False,
+                            "already_destroyed": True,
+                            "target_kind": "object",
+                            "target_name": obj.name,
+                            "weapon": weapon_label,
+                            "attack_total": attack_total,
+                            "ac": obj.ac,
+                            "message": f"The {obj.name} is already destroyed.",
+                        }
+
+                    hit = attack_total >= obj.ac
+                    damage = 0
+                    damage_detail = ""
+                    if hit:
+                        dmg_match = re.match(r"(\d+)?d(\d+)", damage_dice.lower())
+                        count = int(dmg_match.group(1) or 1) if dmg_match else 1
+                        sides = int(dmg_match.group(2)) if dmg_match else 4
+                        dmg_roll = self.dice_roller.roll_dice(
+                            count, sides, abl_mod, AdvantageType.NORMAL, "damage"
+                        )
+                        damage = max(0, dmg_roll.total)
+                        damage_detail = f"{damage_dice}+{abl_mod}"
+                        obj.apply_damage(damage)
+
+                    if hit and obj.destroyed:
+                        flavor = f"The {obj.name} shatters apart."
+                    elif hit:
+                        flavor = f"Your {weapon_label} bites into the {obj.name}."
+                    else:
+                        flavor = f"You swing your {weapon_label} and glance off the {obj.name}."
+
+                    return {
+                        "success": True,
+                        "hit": hit,
+                        "target_kind": "object",
+                        "target_name": obj.name,
+                        "method": weapon_label,
+                        "weapon": weapon_label,
+                        "from_inventory": choice.from_inventory,
+                        "attack_bonus": attack_bonus,
+                        "attack_total": attack_total,
+                        "d20": atk_roll.individual_rolls[0] if atk_roll.individual_rolls else None,
+                        "ac": obj.ac,
+                        "damage": damage if hit else None,
+                        "damage_detail": damage_detail if hit else None,
+                        "object_hp_remaining": obj.current_hp,
+                        "object_max_hp": obj.max_hp,
+                        "destroyed": obj.destroyed,
+                        "message": flavor,
+                    }
+
+                return {"success": False, "error": f"could not resolve target '{tname}'"}
+        except Exception as e:
+            logger.exception("resolve_player_attack failed")
+            return {"success": False, "error": str(e)}
 
     async def resolve_attack(
         self, encounter_id: str, attacker_id: str, target_id: str
