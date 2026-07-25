@@ -181,6 +181,99 @@ class DynamicDM:
                     },
                     "required": ["character_id", "item"]
                 }
+            },
+            {
+                "name": "start_combat_encounter",
+                "description": "create a combat encounter (add combatants then begin_combat)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "campaign_id": {"type": "string"},
+                        "encounter_name": {"type": "string"}
+                    },
+                    "required": ["campaign_id", "encounter_name"]
+                }
+            },
+            {
+                "name": "add_monster_to_encounter",
+                "description": "add a catalog monster to an encounter by name (e.g. goblin)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"},
+                        "monster_name": {"type": "string"}
+                    },
+                    "required": ["encounter_id", "monster_name"]
+                }
+            },
+            {
+                "name": "add_character_to_encounter",
+                "description": "add a player character to an encounter",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"},
+                        "character_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id", "character_id"]
+                }
+            },
+            {
+                "name": "begin_combat",
+                "description": "roll initiative and start combat after combatants are added",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id"]
+                }
+            },
+            {
+                "name": "get_combat_status",
+                "description": "get initiative order, HP, and whose turn it is",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id"]
+                }
+            },
+            {
+                "name": "resolve_attack",
+                "description": "resolve an attack roll vs AC and apply damage on hit",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"},
+                        "attacker_id": {"type": "string"},
+                        "target_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id", "attacker_id", "target_id"]
+                }
+            },
+            {
+                "name": "next_combat_turn",
+                "description": "advance to the next combatant's turn",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id"]
+                }
+            },
+            {
+                "name": "end_combat",
+                "description": "end combat and remove the encounter",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {"type": "string"}
+                    },
+                    "required": ["encounter_id"]
+                }
             }
         ]
 
@@ -269,15 +362,17 @@ ACTIVE CHARACTER INFO:
 
 FUNCTION CALLING INSTRUCTIONS:
 - You can directly modify game state using function calls
-- Use modify_hp() when characters take damage or heal
-- Use roll_dice_for_character() for attack rolls, damage rolls, saving throws
+- Use modify_hp() when characters take damage or heal outside structured combat
+- Use roll_dice_for_character() for ability checks and saving throws
 - Use apply_condition() when characters get status effects
 - Use consume_spell_slot() when characters cast spells
 - Use trigger_rest() for short/long rests
 - Use update_inventory() / equip_item() / unequip_item() for gear
 - Use get_character_status() to check character stats
+- COMBAT: use start_combat_encounter → add_character_to_encounter / add_monster_to_encounter → begin_combat → resolve_attack → next_combat_turn → end_combat
+- Prefer resolve_attack() over narrating hit/miss without rolls; include roll results in narration
 - Always include the actual function results in your response naturally
-- Example: "The goblin swings and hits! *rolls damage* You take 6 slashing damage."
+- Example: "The goblin swings! Attack 14 vs AC 16 — miss."
 - Use the active character ID from the info above when calling functions
 """
 

@@ -81,6 +81,10 @@ class Combatant:
     death_saves_failure: int = 0
     is_unconscious: bool = False
     is_stable: bool = False
+    # Phase 2 combat fields
+    character_id: Optional[int] = None  # linked PC for DB HP sync
+    attack_bonus: int = 0
+    damage_dice: str = "1d4"
 
     def add_condition(self, condition: Condition):
         """Add a condition to the combatant"""
@@ -237,8 +241,21 @@ class CombatEncounter:
         self.current_turn = 0
 
     def end_combat(self):
-        """End the combat encounter"""
+        """End the combat encounter (does not remove from manager)."""
         self.is_active = False
+
+    def begin_combat(self) -> Dict[str, Any]:
+        """Roll initiative and start combat. Requires at least one combatant."""
+        if not self.combatants:
+            return {"success": False, "error": "Cannot begin combat with no combatants"}
+        self.start_combat()
+        return {
+            "success": True,
+            "encounter_id": self.id,
+            "is_active": self.is_active,
+            "initiative_order": [self.get_combatant(cid).name for cid in self.initiative_order],
+            "current_combatant": self.get_current_combatant().name if self.get_current_combatant() else None,
+        }
 
     def next_turn(self):
         """Advance to the next turn"""
@@ -293,6 +310,15 @@ class CombatManager:
         if not encounter:
             return None
 
+        dex_mod = character_data.get('dexterity_modifier', 0)
+        str_mod = character_data.get('strength_modifier', 0)
+        proficiency = character_data.get('proficiency_bonus', 2)
+        # Simple melee: higher of STR/DEX + proficiency; default weapon 1d8
+        attack_bonus = character_data.get('attack_bonus')
+        if attack_bonus is None:
+            attack_bonus = max(str_mod, dex_mod) + proficiency
+        damage_dice = character_data.get('damage_dice', f"1d8+{max(str_mod, dex_mod)}")
+
         combatant = Combatant(
             id=f"char_{character_data['id']}",
             name=character_data['name'],
@@ -300,7 +326,10 @@ class CombatManager:
             max_hp=character_data['max_hp'],
             current_hp=character_data['current_hp'],
             ac=character_data['armor_class'],
-            initiative_modifier=character_data.get('dexterity_modifier', 0)
+            initiative_modifier=dex_mod,
+            character_id=int(character_data['id']),
+            attack_bonus=int(attack_bonus),
+            damage_dice=str(damage_dice),
         )
 
         encounter.add_combatant(combatant)
@@ -317,7 +346,6 @@ class CombatManager:
         try:
             resolved = resolve_monster_data(monster_data)
         except ValueError:
-            # fallback: require classic dict shape
             if not all(k in monster_data for k in ("name", "hp", "ac")):
                 return None
             resolved = monster_data
@@ -329,11 +357,116 @@ class CombatManager:
             max_hp=resolved['hp'],
             current_hp=resolved['hp'],
             ac=resolved['ac'],
-            initiative_modifier=resolved.get('dexterity_modifier', 0)
+            initiative_modifier=resolved.get('dexterity_modifier', 0),
+            attack_bonus=int(resolved.get('attack_bonus', 0)),
+            damage_dice=str(resolved.get('damage', '1d4')),
         )
 
         encounter.add_combatant(combatant)
         return combatant
+
+    def begin_combat(self, encounter_id: str) -> Dict[str, Any]:
+        """Roll initiative and activate combat."""
+        encounter = self.get_encounter(encounter_id)
+        if not encounter:
+            return {"success": False, "error": "Encounter not found"}
+        return encounter.begin_combat()
+
+    def end_and_remove_encounter(self, encounter_id: str) -> Dict[str, Any]:
+        """End combat and drop from active_encounters."""
+        encounter = self.get_encounter(encounter_id)
+        if not encounter:
+            return {"success": False, "error": "Encounter not found"}
+        encounter.end_combat()
+        del self.active_encounters[encounter_id]
+        return {"success": True, "message": f"Ended and removed encounter {encounter_id}"}
+
+    def resolve_attack(self, encounter_id: str, attacker_id: str, target_id: str) -> Dict[str, Any]:
+        """d20 + attack_bonus vs target AC; on hit roll damage_dice and apply."""
+        from .dice_roller import dice_roller
+
+        encounter = self.get_encounter(encounter_id)
+        if not encounter:
+            return {"success": False, "error": "Encounter not found"}
+
+        attacker = encounter.get_combatant(attacker_id)
+        target = encounter.get_combatant(target_id)
+        if not attacker:
+            return {"success": False, "error": f"Attacker not found: {attacker_id}"}
+        if not target:
+            return {"success": False, "error": f"Target not found: {target_id}"}
+        if target.current_hp <= 0:
+            return {"success": False, "error": f"{target.name} is already at 0 HP"}
+
+        attack_roll = dice_roller.roll_dice(
+            1, 20, attacker.attack_bonus, description=f"{attacker.name} attack"
+        )
+        hit = attack_roll.total >= target.ac
+        # Natural 20 always hits; natural 1 always misses (5e basic)
+        natural = attack_roll.individual_rolls[0] if attack_roll.individual_rolls else 0
+        if natural == 20:
+            hit = True
+        elif natural == 1:
+            hit = False
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "attacker": attacker.name,
+            "attacker_id": attacker.id,
+            "target": target.name,
+            "target_id": target.id,
+            "attack_roll": attack_roll.total,
+            "attack_bonus": attacker.attack_bonus,
+            "natural_roll": natural,
+            "target_ac": target.ac,
+            "hit": hit,
+            "damage": 0,
+            "target_hp": target.current_hp,
+            "target_max_hp": target.max_hp,
+            "character_id": target.character_id,
+            "message": "",
+        }
+
+        if not hit:
+            result["message"] = (
+                f"{attacker.name} attacks {target.name}: {attack_roll.total} vs AC {target.ac} — miss"
+            )
+            return result
+
+        try:
+            damage_roll = dice_roller.parse_dice_notation(attacker.damage_dice)
+            damage_amount = max(0, damage_roll.total)
+        except ValueError:
+            damage_amount = max(0, attacker.attack_bonus)  # fallback
+
+        # Critical: double dice on nat 20 (approximate: roll damage again and add)
+        if natural == 20:
+            try:
+                crit_extra = dice_roller.parse_dice_notation(attacker.damage_dice)
+                # strip modifier double-count: parse includes modifier once each roll
+                # simple approach: add only the dice portion by re-rolling notation without stacking mod twice
+                damage_amount = damage_roll.total + sum(crit_extra.individual_rolls)
+            except ValueError:
+                damage_amount *= 2
+
+        damage = DamageInstance(
+            amount=damage_amount,
+            damage_type=DamageType.SLASHING,
+            source=attacker.name,
+            critical=(natural == 20),
+        )
+        damage_result = target.take_damage(damage)
+        result["damage"] = damage_amount
+        result["damage_result"] = damage_result
+        result["target_hp"] = target.current_hp
+        result["is_unconscious"] = target.is_unconscious
+        result["character_id"] = target.character_id
+        crit_note = " (critical)" if natural == 20 else ""
+        result["message"] = (
+            f"{attacker.name} attacks {target.name}: {attack_roll.total} vs AC {target.ac} — hit{crit_note} "
+            f"for {damage_amount} damage ({target.current_hp}/{target.max_hp} HP)"
+        )
+        return result
 
     def apply_damage_to_combatant(self, encounter_id: str, combatant_id: str,
                                 damage_amount: int, damage_type: DamageType,
@@ -351,7 +484,10 @@ class CombatManager:
         result = combatant.take_damage(damage)
 
         return {
+            "success": True,
             "combatant_name": combatant.name,
+            "combatant_id": combatant.id,
+            "character_id": combatant.character_id,
             "damage_result": result,
             "current_hp": combatant.current_hp,
             "max_hp": combatant.max_hp,
@@ -371,7 +507,10 @@ class CombatManager:
         result = combatant.heal(healing_amount)
 
         return {
+            "success": True,
             "combatant_name": combatant.name,
+            "combatant_id": combatant.id,
+            "character_id": combatant.character_id,
             "healing_result": result,
             "current_hp": combatant.current_hp,
             "max_hp": combatant.max_hp
@@ -430,9 +569,14 @@ class CombatManager:
                 "id": combatant.id,
                 "name": combatant.name,
                 "type": combatant.combatant_type.value,
+                "character_id": combatant.character_id,
                 "hp": f"{combatant.current_hp}/{combatant.max_hp}",
+                "current_hp": combatant.current_hp,
+                "max_hp": combatant.max_hp,
                 "temp_hp": combatant.temp_hp,
                 "ac": combatant.ac,
+                "attack_bonus": combatant.attack_bonus,
+                "damage_dice": combatant.damage_dice,
                 "initiative": combatant.initiative,
                 "conditions": [c.condition_type.value for c in combatant.conditions],
                 "is_unconscious": combatant.is_unconscious,

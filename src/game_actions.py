@@ -367,6 +367,147 @@ class GameActions:
             print(f"ERROR: error getting character status for {character_id}: {e}")
             return {"success": False, "error": str(e)}
 
+    async def sync_character_hp_from_combat(
+        self, character_id: str, current_hp: int, reason: str = ""
+    ) -> Dict[str, Any]:
+        """Set character DB HP to match combatant HP after combat damage/heal."""
+        try:
+            async for db in get_db_session():
+                result = await db.execute(
+                    select(Character).where(Character.id == int(character_id))
+                )
+                character = result.scalar_one_or_none()
+                if not character:
+                    return {"success": False, "error": f"character {character_id} not found"}
+
+                old_hp = character.current_hp
+                character.current_hp = max(0, min(character.max_hp, int(current_hp)))
+                if character.current_hp == 0 and old_hp > 0:
+                    character.is_unconscious = True
+                elif character.current_hp > 0 and old_hp == 0:
+                    character.is_unconscious = False
+                    character.death_save_successes = 0
+                    character.death_save_failures = 0
+                    character.is_stable = False
+                await db.commit()
+                msg = f"synced HP {old_hp} → {character.current_hp}/{character.max_hp}"
+                if reason:
+                    msg += f" ({reason})"
+                return {
+                    "success": True,
+                    "message": msg,
+                    "old_hp": old_hp,
+                    "new_hp": character.current_hp,
+                    "max_hp": character.max_hp,
+                }
+        except Exception as e:
+            print(f"ERROR: error syncing HP for character {character_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def start_combat_encounter(self, campaign_id: str, encounter_name: str) -> Dict[str, Any]:
+        encounter = self.combat_manager.create_encounter(str(campaign_id), encounter_name)
+        return {
+            "success": True,
+            "encounter_id": encounter.id,
+            "encounter_name": encounter.name,
+            "message": "Encounter created — add combatants then begin_combat",
+        }
+
+    async def add_monster_to_encounter(self, encounter_id: str, monster_name: str) -> Dict[str, Any]:
+        from .monster_catalog import get_monster
+
+        monster = get_monster(monster_name)
+        if not monster:
+            return {"success": False, "error": f"Unknown monster: {monster_name}"}
+        combatant = self.combat_manager.add_monster_to_combat(encounter_id, monster)
+        if not combatant:
+            return {"success": False, "error": "Encounter not found"}
+        return {
+            "success": True,
+            "combatant_id": combatant.id,
+            "combatant_name": combatant.name,
+            "hp": combatant.max_hp,
+            "ac": combatant.ac,
+            "attack_bonus": combatant.attack_bonus,
+            "damage_dice": combatant.damage_dice,
+        }
+
+    async def add_character_to_encounter(self, encounter_id: str, character_id: str) -> Dict[str, Any]:
+        try:
+            async for db in get_db_session():
+                character = await self.character_manager.get_character_full(db, int(character_id))
+                if not character:
+                    return {"success": False, "error": f"character {character_id} not found"}
+                dex = character.abilities[0].dexterity if character.abilities else 10
+                strength = character.abilities[0].strength if character.abilities else 10
+                character_data = {
+                    "id": character.id,
+                    "name": character.name,
+                    "max_hp": character.max_hp,
+                    "current_hp": character.current_hp,
+                    "armor_class": character.armor_class,
+                    "dexterity_modifier": self.character_manager.get_ability_modifier(dex),
+                    "strength_modifier": self.character_manager.get_ability_modifier(strength),
+                    "proficiency_bonus": character.proficiency_bonus,
+                }
+                combatant = self.combat_manager.add_character_to_combat(encounter_id, character_data)
+                if not combatant:
+                    return {"success": False, "error": "Encounter not found"}
+                return {
+                    "success": True,
+                    "combatant_id": combatant.id,
+                    "combatant_name": combatant.name,
+                    "character_id": combatant.character_id,
+                    "attack_bonus": combatant.attack_bonus,
+                    "damage_dice": combatant.damage_dice,
+                }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def begin_combat(self, encounter_id: str) -> Dict[str, Any]:
+        return self.combat_manager.begin_combat(encounter_id)
+
+    async def get_combat_status(self, encounter_id: str) -> Dict[str, Any]:
+        status = self.combat_manager.get_combat_status(encounter_id)
+        if "error" in status:
+            return {"success": False, "error": status["error"]}
+        status["success"] = True
+        return status
+
+    async def resolve_attack(
+        self, encounter_id: str, attacker_id: str, target_id: str
+    ) -> Dict[str, Any]:
+        result = self.combat_manager.resolve_attack(encounter_id, attacker_id, target_id)
+        if not result.get("success"):
+            return result
+        if result.get("hit") and result.get("character_id") is not None:
+            sync = await self.sync_character_hp_from_combat(
+                str(result["character_id"]),
+                result["target_hp"],
+                reason=result.get("message", "combat attack"),
+            )
+            result["db_sync"] = sync
+        return result
+
+    async def next_combat_turn(self, encounter_id: str) -> Dict[str, Any]:
+        encounter = self.combat_manager.get_encounter(encounter_id)
+        if not encounter:
+            return {"success": False, "error": "Encounter not found"}
+        if not encounter.is_active:
+            return {"success": False, "error": "Combat is not active — call begin_combat first"}
+        encounter.next_turn()
+        current = encounter.get_current_combatant()
+        return {
+            "success": True,
+            "round": encounter.current_round,
+            "turn": encounter.current_turn,
+            "current_combatant": current.name if current else None,
+            "current_combatant_id": current.id if current else None,
+        }
+
+    async def end_combat(self, encounter_id: str) -> Dict[str, Any]:
+        return self.combat_manager.end_and_remove_encounter(encounter_id)
+
 
 # global game actions instance
 game_actions = GameActions()

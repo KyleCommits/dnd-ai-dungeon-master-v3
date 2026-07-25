@@ -268,19 +268,43 @@ async def award_experience(character_id: int, xp_amount: int, db: AsyncSession =
 
 # Combat Management Endpoints
 
+class AttackRequest(BaseModel):
+    attacker_id: str
+    target_id: str
+
+
 @router.post("/api/campaigns/{campaign_id}/combat/start")
-async def start_combat(campaign_id: int, encounter_name: str):
-    """Start a new combat encounter"""
+async def create_combat_encounter(campaign_id: int, encounter_name: str):
+    """Create a new combat encounter (does not roll initiative yet)."""
     encounter = combat_manager.create_encounter(str(campaign_id), encounter_name)
-    encounter.start_combat()
 
     return {
         "encounter_id": encounter.id,
         "encounter_name": encounter.name,
-        "status": "Combat started",
+        "status": "Encounter created — add combatants then POST .../begin",
+        "is_active": encounter.is_active,
         "round": encounter.current_round,
-        "turn": encounter.current_turn
+        "turn": encounter.current_turn,
     }
+
+
+@router.post("/api/combat/{encounter_id}/begin")
+async def begin_combat(encounter_id: str):
+    """Roll initiative and start combat after combatants are added."""
+    result = combat_manager.begin_combat(encounter_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to begin combat"))
+    return result
+
+
+@router.post("/api/combat/{encounter_id}/end")
+async def end_combat(encounter_id: str):
+    """End combat and remove the encounter from memory."""
+    result = combat_manager.end_and_remove_encounter(encounter_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Encounter not found"))
+    return result
+
 
 @router.post("/api/combat/{encounter_id}/add-monster")
 async def add_monster_to_combat(encounter_id: str, monster_name: str):
@@ -297,9 +321,12 @@ async def add_monster_to_combat(encounter_id: str, monster_name: str):
 
     return {
         "success": True,
+        "combatant_id": combatant.id,
         "combatant_name": combatant.name,
         "hp": combatant.max_hp,
         "ac": combatant.ac,
+        "attack_bonus": combatant.attack_bonus,
+        "damage_dice": combatant.damage_dice,
         "initiative": combatant.initiative,
     }
 
@@ -311,13 +338,17 @@ async def add_character_to_combat(encounter_id: str, character_id: int, db: Asyn
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    dex = character.abilities[0].dexterity if character.abilities else 10
+    strength = character.abilities[0].strength if character.abilities else 10
     character_data = {
         "id": character.id,
         "name": character.name,
         "max_hp": character.max_hp,
         "current_hp": character.current_hp,
         "armor_class": character.armor_class,
-        "dexterity_modifier": character_manager.get_ability_modifier(character.abilities[0].dexterity)
+        "dexterity_modifier": character_manager.get_ability_modifier(dex),
+        "strength_modifier": character_manager.get_ability_modifier(strength),
+        "proficiency_bonus": character.proficiency_bonus,
     }
 
     combatant = combat_manager.add_character_to_combat(encounter_id, character_data)
@@ -326,13 +357,38 @@ async def add_character_to_combat(encounter_id: str, character_id: int, db: Asyn
 
     return {
         "success": True,
+        "combatant_id": combatant.id,
         "combatant_name": combatant.name,
-        "initiative": combatant.initiative
+        "character_id": combatant.character_id,
+        "attack_bonus": combatant.attack_bonus,
+        "damage_dice": combatant.damage_dice,
+        "initiative": combatant.initiative,
     }
+
+
+@router.post("/api/combat/{encounter_id}/attack")
+async def resolve_attack(encounter_id: str, request: AttackRequest):
+    """Resolve an attack roll vs AC and apply damage on hit. Syncs PC HP to DB."""
+    from .game_actions import game_actions
+
+    result = combat_manager.resolve_attack(encounter_id, request.attacker_id, request.target_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Attack failed"))
+
+    if result.get("hit") and result.get("character_id") is not None:
+        sync = await game_actions.sync_character_hp_from_combat(
+            str(result["character_id"]), result["target_hp"], reason=result.get("message", "combat attack")
+        )
+        result["db_sync"] = sync
+
+    return result
+
 
 @router.post("/api/combat/{encounter_id}/damage")
 async def apply_damage(encounter_id: str, request: DamageRequest):
     """Apply damage to a combatant"""
+    from .game_actions import game_actions
+
     try:
         damage_type = DamageType(request.damage_type)
     except ValueError:
@@ -345,15 +401,30 @@ async def apply_damage(encounter_id: str, request: DamageRequest):
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
 
+    if result.get("character_id") is not None:
+        sync = await game_actions.sync_character_hp_from_combat(
+            str(result["character_id"]), result["current_hp"], reason=request.source or "combat damage"
+        )
+        result["db_sync"] = sync
+
     return result
+
 
 @router.post("/api/combat/{encounter_id}/heal")
 async def apply_healing(encounter_id: str, combatant_id: str, healing_amount: int):
     """Heal a combatant"""
+    from .game_actions import game_actions
+
     result = combat_manager.heal_combatant(encounter_id, combatant_id, healing_amount)
 
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
+
+    if result.get("character_id") is not None:
+        sync = await game_actions.sync_character_hp_from_combat(
+            str(result["character_id"]), result["current_hp"], reason="combat healing"
+        )
+        result["db_sync"] = sync
 
     return result
 
