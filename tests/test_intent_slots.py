@@ -29,9 +29,21 @@ def test_npc_partial_name_matches():
     assert s.resolved is True
 
 
-@pytest.mark.parametrize("needle", ["g", "fi"])
-def test_short_needles_do_not_match_closed_sets(needle):
-    assert _match_closed_set(needle, ["Garrick the Smith", "Fireball"]) is None
+@pytest.mark.parametrize(
+    "needle,candidates",
+    [
+        ("g", ["Garrick the Smith", "Fireball"]),
+        ("fi", ["Garrick the Smith", "Fireball"]),
+        ("g", ["G the Goblin"]),
+        ("mi", ["Mira the Healer"]),
+    ],
+)
+def test_short_needles_do_not_match_closed_sets(needle, candidates):
+    assert _match_closed_set(needle, candidates) is None
+
+
+def test_exact_short_name_still_matches():
+    assert _match_closed_set("g", ["G"]) == "G"
 
 
 def test_ambiguous_npc_prefix_does_not_resolve():

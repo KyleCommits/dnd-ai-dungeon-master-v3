@@ -41,6 +41,9 @@ def _match_closed_set_result(
         if needle == str(cand).strip().lower():
             return str(cand), False
 
+    if len(needle) < MIN_PARTIAL_MATCH_LENGTH:
+        return None, False
+
     token_matches = [
         str(cand)
         for cand in candidates or ()
@@ -50,9 +53,6 @@ def _match_closed_set_result(
         return token_matches[0], False
     if len(token_matches) > 1:
         return None, True
-
-    if len(needle) < MIN_PARTIAL_MATCH_LENGTH:
-        return None, False
 
     prefix_matches = [
         str(cand)
