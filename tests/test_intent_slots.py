@@ -1,4 +1,6 @@
-from src.intent_slots import fill
+import pytest
+
+from src.intent_slots import _match_closed_set, fill
 
 WEAPONS = ["Longsword", "Dagger", "Shortbow"]
 NPCS = ["Mira", "Garrick the Smith"]
@@ -25,6 +27,38 @@ def test_npc_partial_name_matches():
     s = _fill("i attack garrick", "attack")
     assert s.target == "Garrick the Smith"
     assert s.resolved is True
+
+
+@pytest.mark.parametrize("needle", ["g", "fi"])
+def test_short_needles_do_not_match_closed_sets(needle):
+    assert _match_closed_set(needle, ["Garrick the Smith", "Fireball"]) is None
+
+
+def test_ambiguous_npc_prefix_does_not_resolve():
+    s = fill(
+        "i attack mir",
+        "attack",
+        weapon_names=WEAPONS,
+        npc_names=["Mira", "Miranda"],
+        spell_names=SPELLS,
+    )
+    assert s.resolved is False
+
+
+def test_exact_npc_match_wins_over_partial_match():
+    s = fill(
+        "i attack mira",
+        "attack",
+        weapon_names=WEAPONS,
+        npc_names=["Miranda", "Mira"],
+        spell_names=SPELLS,
+    )
+    assert s.target == "Mira"
+    assert s.resolved is True
+
+
+def test_whole_token_match_still_works():
+    assert _match_closed_set("garrick", ["Garrick the Smith"]) == "Garrick the Smith"
 
 
 def test_weapon_in_inventory_is_kept():

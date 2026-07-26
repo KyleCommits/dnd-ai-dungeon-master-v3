@@ -12,6 +12,8 @@ from typing import Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
+MIN_PARTIAL_MATCH_LENGTH = 3
+
 _PRONOUNS = frozenset({
     "you", "yourself", "u", "me", "myself", "self", "her", "him", "them", "it",
     "player", "pc", "character", "they", "he", "she",
@@ -27,19 +29,45 @@ class Slots:
     resolved: bool = True
 
 
-def _match_closed_set(value: str, candidates: Sequence[str]) -> Optional[str]:
-    """Case-insensitive exact match, then containment. Returns the canonical name."""
+def _match_closed_set_result(
+    value: str,
+    candidates: Sequence[str],
+) -> tuple[Optional[str], bool]:
+    """Return the canonical match and whether a non-exact tier was ambiguous."""
     needle = (value or "").strip().lower()
     if not needle:
-        return None
+        return None, False
     for cand in candidates or ():
         if needle == str(cand).strip().lower():
-            return str(cand)
-    for cand in candidates or ():
-        cand_l = str(cand).strip().lower()
-        if needle in cand_l.split() or cand_l.startswith(needle):
-            return str(cand)
-    return None
+            return str(cand), False
+
+    token_matches = [
+        str(cand)
+        for cand in candidates or ()
+        if needle in str(cand).strip().lower().split()
+    ]
+    if len(token_matches) == 1:
+        return token_matches[0], False
+    if len(token_matches) > 1:
+        return None, True
+
+    if len(needle) < MIN_PARTIAL_MATCH_LENGTH:
+        return None, False
+
+    prefix_matches = [
+        str(cand)
+        for cand in candidates or ()
+        if str(cand).strip().lower().startswith(needle)
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0], False
+    return None, len(prefix_matches) > 1
+
+
+def _match_closed_set(value: str, candidates: Sequence[str]) -> Optional[str]:
+    """Match exact names, unique whole tokens, then unique safe-length prefixes."""
+    match, _ambiguous = _match_closed_set_result(value, candidates)
+    return match
 
 
 def _fill_attack(
@@ -55,7 +83,10 @@ def _fill_attack(
     if not target or target.strip().lower() in _PRONOUNS:
         return Slots(resolved=False)
 
-    canonical = _match_closed_set(target, npc_names)
+    canonical, ambiguous_target = _match_closed_set_result(target, npc_names)
+    if ambiguous_target:
+        logger.info("Target %r matches multiple known NPCs; deferring action", target)
+        return Slots(target=target.strip(), resolved=False)
     target_out = canonical or target.strip()
 
     method: Optional[str] = None
