@@ -117,3 +117,93 @@
 {"text": "go down the eastern passage", "action": "move"}
 {"text": "i back away from the monster", "action": "move"}
 {"text": "i climb onto the roof", "action": "move"}
+{"text": "i down the healing draught in one gulp", "action": "use_item"}
+{"text": "i drink the blue vial from my belt", "action": "use_item"}
+{"text": "i rub the soothing salve over my burns", "action": "use_item"}
+{"text": "i smear wyvern poison across my arrowheads", "action": "use_item"}
+{"text": "i coat the rusty hinge with lamp oil", "action": "use_item"}
+{"text": "i activate the rune scroll from my pack", "action": "use_item"}
+{"text": "i work the lock with my picks", "action": "use_item"}
+{"text": "i wedge my crowbar beneath the stone slab", "action": "use_item"}
+{"text": "i secure the prisoner with fifty feet of rope", "action": "use_item"}
+{"text": "i scatter caltrops across the tunnel behind us", "action": "use_item"}
+{"text": "i spill the pouch of metal beads across the stairs", "action": "use_item"}
+{"text": "i hurl my flask of oil onto the floor", "action": "use_item"}
+{"text": "i splash holy water over the desecrated altar", "action": "use_item"}
+{"text": "i ignite a fresh torch with my tinderbox", "action": "use_item"}
+{"text": "i chew some trail rations while we wait", "action": "use_item"}
+{"text": "i swallow a dose of antidote", "action": "use_item"}
+{"text": "i sound the brass horn three times", "action": "use_item"}
+{"text": "i mark the safe passage with a piece of chalk", "action": "use_item"}
+{"text": "i pour water from my skin onto the embers", "action": "use_item"}
+{"text": "i wrap the wound with my healer's kit", "action": "use_item"}
+{"text": "roll me a perception check for hidden doors", "action": "roll"}
+{"text": "i make an insight check on her story", "action": "roll"}
+{"text": "let me roll intimidation against the sentry", "action": "roll"}
+{"text": "i want a persuasion check to lower the price", "action": "roll"}
+{"text": "roll athletics to force the portcullis up", "action": "roll"}
+{"text": "can i make an acrobatics check here", "action": "roll"}
+{"text": "i roll my constitution saving throw", "action": "roll"}
+{"text": "make a dex save with advantage", "action": "roll"}
+{"text": "i check stealth at disadvantage", "action": "roll"}
+{"text": "roll two d20s and take the higher one", "action": "roll"}
+{"text": "lets determine initiative for the fight", "action": "roll"}
+{"text": "i make a raw strength check", "action": "roll"}
+{"text": "i stroll toward the market square", "action": "move"}
+{"text": "i sprint along the riverbank", "action": "move"}
+{"text": "i sneak past the sleeping guards", "action": "move"}
+{"text": "i scale the outside wall", "action": "move"}
+{"text": "i ride my horse toward the village", "action": "move"}
+{"text": "i enter the chamber on the left", "action": "move"}
+{"text": "i leave the tavern by the back exit", "action": "move"}
+{"text": "i approach the hooded stranger", "action": "move"}
+{"text": "i put some distance between me and the ooze", "action": "move"}
+{"text": "i follow the ranger through the woods", "action": "move"}
+{"text": "i crawl beneath the fallen beams", "action": "move"}
+{"text": "i settle in for a full nights sleep", "action": "rest"}
+{"text": "we stop traveling and camp until sunrise", "action": "rest"}
+{"text": "i bed down beside the fire", "action": "rest"}
+{"text": "the party sleeps through the night", "action": "rest"}
+{"text": "we call it a day and set up our tents", "action": "rest"}
+{"text": "i take an hour to catch my breath", "action": "rest"}
+{"text": "lets pause here and spend some hit dice", "action": "rest"}
+{"text": "we recover during a brief break", "action": "rest"}
+{"text": "i curl up in my bedroll until dawn", "action": "rest"}
+{"text": "we bunk down in the abandoned cottage", "action": "rest"}
+{"text": "i unleash magic missile at the wraith", "action": "cast"}
+{"text": "i invoke cure wounds for the wounded guard", "action": "cast"}
+{"text": "i channel sacred flame against the vampire", "action": "cast"}
+{"text": "i summon mage hand to lift the latch", "action": "cast"}
+{"text": "i use dimension door to reach the balcony", "action": "cast"}
+{"text": "i call down moonbeam over the werewolf", "action": "cast"}
+{"text": "i place haste on our barbarian", "action": "cast"}
+{"text": "shield of faith around the cleric", "action": "cast"}
+{"text": "i bring up detect thoughts on the ambassador", "action": "cast"}
+{"text": "i conjure web across the corridor", "action": "cast"}
+{"text": "i whisper the words for feather fall", "action": "cast"}
+{"text": "i touch the fighter with lesser restoration", "action": "cast"}
+{"text": "i call upon thorn whip to pull the cultist closer", "action": "cast"}
+{"text": "i tell the constable i knocked over that cart yesterday", "action": "speak"}
+{"text": "i confess that the blood on my coat came from an earlier duel", "action": "speak"}
+{"text": "i explain that we battled the ogres on the road here", "action": "speak"}
+{"text": "i assure him the punch at the festival was an accident", "action": "speak"}
+{"text": "i mention that my arrow wounded a poacher last week", "action": "speak"}
+{"text": "i tell the priest we already killed the beast outside town", "action": "speak"}
+{"text": "if i attacked the duke his guards would execute me", "action": "speak"}
+{"text": "i say we should avoid stabbing anyone this time", "action": "speak"}
+{"text": "i bow to the captain and thank him for the escort", "action": "speak"}
+{"text": "i shake her hand and say it was good doing business", "action": "speak"}
+{"text": "i take a seat and apologize for arriving late", "action": "speak"}
+{"text": "i kneel before the queen and offer my gratitude", "action": "speak"}
+{"text": "i smash my forehead into the bugbears nose", "action": "attack"}
+{"text": "i ram the bandit face first with my skull", "action": "attack"}
+{"text": "i blink behind the ogre with misty step", "action": "cast"}
+{"text": "i use vortex warp to teleport the monk upstairs", "action": "cast"}
+{"text": "i grant the scout guidance before her search", "action": "cast"}
+{"text": "roll charisma intimidation while i threaten the smuggler", "action": "roll"}
+{"text": "make an intimidation check to scare off the jailer", "action": "roll"}
+{"text": "i unfurl the scroll of protection and trigger its magic", "action": "use_item"}
+{"text": "i use a bag of ball bearings to make the floor slippery", "action": "use_item"}
+{"text": "i scatter a handful of marbles under the pursuing guards", "action": "use_item"}
+{"text": "i ask the farmer how to reach the monastery", "action": "speak"}
+{"text": "which path should we take to get to the harbor", "action": "speak"}
