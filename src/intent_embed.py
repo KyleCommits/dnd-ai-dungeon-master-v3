@@ -7,7 +7,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -81,6 +81,14 @@ def examples_fingerprint(examples: Sequence[Example]) -> str:
     return h.hexdigest()
 
 
+def _valid_cached_matrix(matrix: np.ndarray, expected_rows: int) -> bool:
+    if matrix.ndim != 2 or matrix.shape[0] != expected_rows:
+        return False
+    if not np.all(np.isfinite(matrix)):
+        return False
+    return bool(np.allclose(np.linalg.norm(matrix, axis=1), 1.0, atol=1e-4))
+
+
 def build_matrix(
     examples: Sequence[Example],
     emb: Embedder,
@@ -92,17 +100,29 @@ def build_matrix(
 
     if cache_path.exists():
         try:
-            cached = np.load(cache_path, allow_pickle=False)
-            if str(cached["fingerprint"]) == fingerprint:
-                return cached["matrix"].astype(np.float32)
-            logger.info("Intent embedding cache stale; rebuilding.")
+            with np.load(cache_path, allow_pickle=False) as cached:
+                if (
+                    str(cached["fingerprint"]) == fingerprint
+                    and str(cached["model_name"]) == emb.model_name
+                ):
+                    matrix = cached["matrix"].astype(np.float32)
+                    if _valid_cached_matrix(matrix, len(examples)):
+                        return matrix
+                    logger.warning("Intent embedding cache matrix invalid; rebuilding.")
+                else:
+                    logger.info("Intent embedding cache stale; rebuilding.")
         except Exception:
             logger.warning("Intent embedding cache unreadable; rebuilding.")
 
     matrix = emb.encode([ex.text for ex in examples])
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        np.savez(cache_path, matrix=matrix, fingerprint=np.array(fingerprint))
+        np.savez(
+            cache_path,
+            matrix=matrix,
+            fingerprint=np.array(fingerprint),
+            model_name=np.array(emb.model_name),
+        )
     except Exception:
         logger.warning("Could not write intent embedding cache to %s", cache_path)
     return matrix

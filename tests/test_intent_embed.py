@@ -9,8 +9,9 @@ from src.intent_embed import Embedder, build_matrix, examples_fingerprint
 class FakeEmbedder:
     """Deterministic stand-in so unit tests never load a real model."""
 
-    def __init__(self):
+    def __init__(self, model_name="fake-model"):
         self.calls = 0
+        self.model_name = model_name
 
     def encode(self, texts):
         self.calls += 1
@@ -56,6 +57,30 @@ def test_cache_invalidated_when_examples_change(tmp_path):
     build_matrix(EXAMPLES, fake, cache)
     build_matrix(EXAMPLES + [Example("hi", "speak")], fake, cache)
     assert fake.calls == 2, "changed examples must invalidate the cache"
+
+
+def test_cache_invalidated_when_model_changes(tmp_path):
+    cache = tmp_path / "emb.npz"
+    first = FakeEmbedder("first-model")
+    second = FakeEmbedder("second-model")
+    build_matrix(EXAMPLES, first, cache)
+    build_matrix(EXAMPLES, second, cache)
+    assert first.calls == 1
+    assert second.calls == 1, "changed model must invalidate the cache"
+
+
+def test_malformed_cache_matrix_is_rebuilt(tmp_path):
+    cache = tmp_path / "emb.npz"
+    fake = FakeEmbedder()
+    np.savez(
+        cache,
+        matrix=np.ones((1, 4), dtype=np.float32),
+        fingerprint=np.array(examples_fingerprint(EXAMPLES)),
+        model_name=np.array(fake.model_name),
+    )
+    m = build_matrix(EXAMPLES, fake, cache)
+    assert fake.calls == 1, "wrong cache row count must trigger a rebuild"
+    assert m.shape == (2, 4)
 
 
 def test_corrupt_cache_is_rebuilt(tmp_path):
