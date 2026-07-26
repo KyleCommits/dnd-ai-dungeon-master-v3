@@ -155,3 +155,5 @@ Thumbs.db
 *.temp
 temp/
 tmp/
+
+data/intent/embeddings.npz

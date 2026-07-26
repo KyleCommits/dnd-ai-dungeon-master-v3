@@ -11,3 +11,9 @@ def event_loop_policy():
     if sys.platform == "win32":
         return asyncio.WindowsSelectorEventLoopPolicy()
     return asyncio.DefaultEventLoopPolicy()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "slow: loads a real model; excluded from the default run"
+    )
