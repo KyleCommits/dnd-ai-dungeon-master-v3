@@ -33,6 +33,26 @@ def test_fingerprint_changes_when_examples_change():
     assert a == examples_fingerprint(EXAMPLES)
 
 
+def test_fingerprint_distinguishes_embedded_delimiters():
+    one_example = [Example("x", "y\x01z\x00w")]
+    two_examples = [Example("x", "y"), Example("z", "w")]
+    assert examples_fingerprint(one_example) != examples_fingerprint(two_examples)
+
+
+def test_env_var_overrides_embed_model(monkeypatch):
+    from src.intent_config import embed_model_name
+
+    monkeypatch.setenv("INTENT_EMBED_MODEL", "some/other-model")
+    assert embed_model_name() == "some/other-model"
+
+
+def test_embed_model_falls_back_when_unset(monkeypatch):
+    from src.intent_config import FALLBACK_EMBED_MODEL, embed_model_name
+
+    monkeypatch.delenv("INTENT_EMBED_MODEL", raising=False)
+    assert embed_model_name() == FALLBACK_EMBED_MODEL
+
+
 def test_build_matrix_shape_and_cache_write(tmp_path):
     cache = tmp_path / "emb.npz"
     fake = FakeEmbedder()
@@ -80,6 +100,23 @@ def test_malformed_cache_matrix_is_rebuilt(tmp_path):
     )
     m = build_matrix(EXAMPLES, fake, cache)
     assert fake.calls == 1, "wrong cache row count must trigger a rebuild"
+    assert m.shape == (2, 4)
+
+
+def test_cache_with_wrong_embedding_width_is_rebuilt(tmp_path):
+    cache = tmp_path / "emb.npz"
+    fake = FakeEmbedder()
+    matrix = np.zeros((2, 3), dtype=np.float32)
+    matrix[:, 0] = 1.0
+    np.savez(
+        cache,
+        matrix=matrix,
+        fingerprint=np.array(examples_fingerprint(EXAMPLES)),
+        model_name=np.array(fake.model_name),
+        embedding_dim=np.array(4),
+    )
+    m = build_matrix(EXAMPLES, fake, cache)
+    assert fake.calls == 1, "wrong cache embedding width must trigger a rebuild"
     assert m.shape == (2, 4)
 
 

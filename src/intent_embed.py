@@ -5,33 +5,21 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
 
+from .intent_config import embed_model_name
 from .intent_data import Example
 
 logger = logging.getLogger(__name__)
-
-FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
-def _configured_model() -> str:
-    try:
-        from .config import settings
-
-        return str(getattr(settings, "INTENT_EMBED_MODEL", "") or FALLBACK_MODEL)
-    except Exception:
-        return os.environ.get("INTENT_EMBED_MODEL", FALLBACK_MODEL)
-
 
 class Embedder:
     """Mean-pooled MiniLM. Loads lazily and stays resident for the process."""
 
     def __init__(self, model_name: Optional[str] = None) -> None:
-        model_name = model_name or _configured_model()
+        model_name = model_name or embed_model_name()
         self.model_name = model_name
         self._tokenizer = None
         self._model = None
@@ -74,15 +62,21 @@ def examples_fingerprint(examples: Sequence[Example]) -> str:
     """Stable hash of the example set, used as the cache key."""
     h = hashlib.sha256()
     for ex in examples:
-        h.update(ex.text.encode("utf-8"))
-        h.update(b"\x00")
-        h.update(ex.action.encode("utf-8"))
-        h.update(b"\x01")
+        for value in (ex.text, ex.action):
+            encoded = value.encode("utf-8")
+            h.update(len(encoded).to_bytes(8, byteorder="big"))
+            h.update(encoded)
     return h.hexdigest()
 
 
-def _valid_cached_matrix(matrix: np.ndarray, expected_rows: int) -> bool:
-    if matrix.ndim != 2 or matrix.shape[0] != expected_rows:
+def _valid_cached_matrix(
+    matrix: np.ndarray, expected_rows: int, expected_dim: int
+) -> bool:
+    if (
+        matrix.ndim != 2
+        or matrix.shape[0] != expected_rows
+        or matrix.shape[1] != expected_dim
+    ):
         return False
     if not np.all(np.isfinite(matrix)):
         return False
@@ -106,7 +100,8 @@ def build_matrix(
                     and str(cached["model_name"]) == emb.model_name
                 ):
                     matrix = cached["matrix"].astype(np.float32)
-                    if _valid_cached_matrix(matrix, len(examples)):
+                    embedding_dim = int(cached["embedding_dim"])
+                    if _valid_cached_matrix(matrix, len(examples), embedding_dim):
                         return matrix
                     logger.warning("Intent embedding cache matrix invalid; rebuilding.")
                 else:
@@ -122,6 +117,7 @@ def build_matrix(
             matrix=matrix,
             fingerprint=np.array(fingerprint),
             model_name=np.array(emb.model_name),
+            embedding_dim=np.array(matrix.shape[1]),
         )
     except Exception:
         logger.warning("Could not write intent embedding cache to %s", cache_path)
