@@ -13,6 +13,10 @@ class FakeEmbedder:
         self.calls = 0
         self.model_name = model_name
 
+    @property
+    def embedding_dim(self):
+        return 4
+
     def encode(self, texts):
         self.calls += 1
         vecs = []
@@ -117,6 +121,23 @@ def test_cache_with_wrong_embedding_width_is_rebuilt(tmp_path):
     )
     m = build_matrix(EXAMPLES, fake, cache)
     assert fake.calls == 1, "wrong cache embedding width must trigger a rebuild"
+    assert m.shape == (2, 4)
+
+
+def test_self_consistent_wrong_width_cache_is_rebuilt(tmp_path):
+    cache = tmp_path / "emb.npz"
+    fake = FakeEmbedder()
+    matrix = np.zeros((2, 3), dtype=np.float32)
+    matrix[:, 0] = 1.0
+    np.savez(
+        cache,
+        matrix=matrix,
+        fingerprint=np.array(examples_fingerprint(EXAMPLES)),
+        model_name=np.array(fake.model_name),
+        embedding_dim=np.array(3),
+    )
+    m = build_matrix(EXAMPLES, fake, cache)
+    assert fake.calls == 1, "cache width must match the live embedder dimension"
     assert m.shape == (2, 4)
 
 

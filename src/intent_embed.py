@@ -35,6 +35,12 @@ class Embedder:
         self._model.eval()
         logger.info("Intent embedder ready (CPU) model=%s", self.model_name)
 
+    @property
+    def embedding_dim(self) -> int:
+        """Return the model's authoritative output width."""
+        self.load()
+        return int(self._model.config.hidden_size)
+
     def encode(self, texts: Sequence[str]) -> np.ndarray:
         """Return an L2-normalized float32 array of shape (len(texts), dim)."""
         import torch
@@ -100,8 +106,11 @@ def build_matrix(
                     and str(cached["model_name"]) == emb.model_name
                 ):
                     matrix = cached["matrix"].astype(np.float32)
-                    embedding_dim = int(cached["embedding_dim"])
-                    if _valid_cached_matrix(matrix, len(examples), embedding_dim):
+                    cached_dim = int(cached["embedding_dim"])
+                    authoritative_dim = emb.embedding_dim
+                    if cached_dim == authoritative_dim and _valid_cached_matrix(
+                        matrix, len(examples), authoritative_dim
+                    ):
                         return matrix
                     logger.warning("Intent embedding cache matrix invalid; rebuilding.")
                 else:

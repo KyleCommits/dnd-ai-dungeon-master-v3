@@ -242,3 +242,68 @@ tests/test_intent_embed.py::test_real_embedder_returns_normalized_vectors
 
 The slow run also emitted the known Windows/torchvision fatal-exception
 diagnostics, but pytest completed and printed the passing summary.
+
+## Fix pass 3
+
+### Finding addressed
+
+`Embedder.embedding_dim` now loads the model if needed and reports
+`self._model.config.hidden_size`, making the live model configuration the
+authoritative output width. `build_matrix` accepts a cache only when both its
+stored `embedding_dim` and matrix width agree with that authoritative value;
+otherwise it logs and rebuilds. `tests/test_intent_embed.py` now gives
+`FakeEmbedder` a matching dimension and covers a readable, normalized,
+self-consistent wrong-width cache.
+
+### TDD RED
+
+Command:
+```powershell
+.\llama_env_311\Scripts\python.exe -m pytest tests/test_intent_embed.py::test_self_consistent_wrong_width_cache_is_rebuilt -q
+```
+
+Output:
+```text
+F                                                                        [100%]
+E       AssertionError: cache width must match the live embedder dimension
+E       assert 0 == 1
+FAILED tests/test_intent_embed.py::test_self_consistent_wrong_width_cache_is_rebuilt
+1 failed in 0.25s
+```
+
+The cache was incorrectly reused, so the fake embedder's call count remained
+zero.
+
+### Final verification
+
+Command:
+```powershell
+.\llama_env_311\Scripts\python.exe -m pytest tests/test_intent_embed.py -q -m "not slow"
+```
+
+Output:
+```text
+............                                                             [100%]
+12 passed, 2 deselected in 0.22s
+```
+
+Command:
+```powershell
+.\llama_env_311\Scripts\python.exe -m pytest tests/test_intent_embed.py -q -m "slow"
+```
+
+Output:
+```text
+Windows fatal exception: code 0xc0000139
+...
+..                                                                       [100%]
+============================== warnings summary ===============================
+tests/test_intent_embed.py::test_real_embedder_returns_normalized_vectors
+  UserWarning: Failed to load image Python extension: '[WinError 127] The specified procedure could not be found'
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 12 deselected, 1 warning in 5.07s
+```
+
+The slow run printed the known Windows/torchvision import diagnostics but
+completed with both selected tests passing.
