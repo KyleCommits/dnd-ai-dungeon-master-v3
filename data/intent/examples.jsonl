@@ -1,0 +1,119 @@
+{"text": "hello!", "action": "speak"}
+{"text": "hi there", "action": "speak"}
+{"text": "hello barkeep", "action": "speak"}
+{"text": "i say hello", "action": "speak"}
+{"text": "i greet the innkeeper warmly", "action": "speak"}
+{"text": "good evening to you", "action": "speak"}
+{"text": "im sorry that i destroyed your tables. will 1000 gold cover the damage?", "action": "speak"}
+{"text": "i apologize for the mess", "action": "speak"}
+{"text": "sorry about your tables", "action": "speak"}
+{"text": "will 500 gold cover the damage to the furniture?", "action": "speak"}
+{"text": "how much do i owe you for the broken chairs?", "action": "speak"}
+{"text": "i offer her a bag of coins", "action": "speak"}
+{"text": "what do i see", "action": "speak"}
+{"text": "where am i", "action": "speak"}
+{"text": "i look around the tavern", "action": "speak"}
+{"text": "i ask about the missing caravan", "action": "speak"}
+{"text": "who else is in the room?", "action": "speak"}
+{"text": "i tell mira about the goblins", "action": "speak"}
+{"text": "can i buy a room for the night", "action": "speak"}
+{"text": "i attack the table", "action": "attack"}
+{"text": "i attack mira", "action": "attack"}
+{"text": "i swing my sword at the bandit", "action": "attack"}
+{"text": "i hit the door with my axe", "action": "attack"}
+{"text": "i punch the guard", "action": "attack"}
+{"text": "i stab him with my dagger", "action": "attack"}
+{"text": "attack the goblin", "action": "attack"}
+{"text": "i smash the crate", "action": "attack"}
+{"text": "i shoot the wolf with my bow", "action": "attack"}
+{"text": "i kick the door down", "action": "attack"}
+{"text": "i cast fireball", "action": "cast"}
+{"text": "i cast cure wounds on myself", "action": "cast"}
+{"text": "cast magic missile at the goblin", "action": "cast"}
+{"text": "i want to cast shield", "action": "cast"}
+{"text": "try again", "action": "repeat_last"}
+{"text": "again", "action": "repeat_last"}
+{"text": "once more", "action": "repeat_last"}
+{"text": "do it again", "action": "repeat_last"}
+{"text": "i take a long rest", "action": "rest"}
+{"text": "we rest for the night", "action": "rest"}
+{"text": "short rest", "action": "rest"}
+{"text": "roll perception", "action": "roll"}
+{"text": "i make a stealth check", "action": "roll"}
+{"text": "roll initiative", "action": "roll"}
+{"text": "i drink a healing potion", "action": "use_item"}
+{"text": "i use my rope to climb down", "action": "use_item"}
+{"text": "i light a torch", "action": "use_item"}
+{"text": "i walk to the door", "action": "move"}
+{"text": "i head upstairs", "action": "move"}
+{"text": "i move behind the bar", "action": "move"}
+{"text": "morning everyone", "action": "speak"}
+{"text": "hey barkeep got any ale", "action": "speak"}
+{"text": "i ask the guard his name", "action": "speak"}
+{"text": "tell me what happened here", "action": "speak"}
+{"text": "i whisper that we should leave", "action": "speak"}
+{"text": "i warn them about the dragon", "action": "speak"}
+{"text": "please dont hurt us", "action": "speak"}
+{"text": "i promise i wont cause trouble", "action": "speak"}
+{"text": "i already smashed the table earlier", "action": "speak"}
+{"text": "that chair broke when i hit it before", "action": "speak"}
+{"text": "i tell him i fought the guards yesterday", "action": "speak"}
+{"text": "sorry i punched your brother", "action": "speak"}
+{"text": "i explain why i attacked the caravan", "action": "speak"}
+{"text": "can we settle this without fighting", "action": "speak"}
+{"text": "ill pay for every window i broke", "action": "speak"}
+{"text": "would fifty gold make us even", "action": "speak"}
+{"text": "i hand the owner payment for repairs", "action": "speak"}
+{"text": "do you know where the mayor lives", "action": "speak"}
+{"text": "what is making that noise", "action": "speak"}
+{"text": "is the door locked", "action": "speak"}
+{"text": "i examine the writing on the wall", "action": "speak"}
+{"text": "i listen for footsteps", "action": "speak"}
+{"text": "i tell the merchant no deal", "action": "speak"}
+{"text": "thanks for your help", "action": "speak"}
+{"text": "i raise my axe and chop the skeleton", "action": "attack"}
+{"text": "hit the cultist with my staff", "action": "attack"}
+{"text": "i fire an arrow at the ogre", "action": "attack"}
+{"text": "i cut the rope with my blade", "action": "attack"}
+{"text": "i ram the gate with my shoulder", "action": "attack"}
+{"text": "i tackle the fleeing thief", "action": "attack"}
+{"text": "i bash the chest open with my hammer", "action": "attack"}
+{"text": "i slash the spider", "action": "attack"}
+{"text": "i swing at the nearest zombie", "action": "attack"}
+{"text": "punch him in the face", "action": "attack"}
+{"text": "i break the lock with my mace", "action": "attack"}
+{"text": "i throw a dagger at the mage", "action": "attack"}
+{"text": "i club the rat", "action": "attack"}
+{"text": "shoot the bandit leader", "action": "attack"}
+{"text": "i elbow the thug in the ribs", "action": "attack"}
+{"text": "i charge and spear the troll", "action": "attack"}
+{"text": "i crack the statue with my pick", "action": "attack"}
+{"text": "smash that barrel now", "action": "attack"}
+{"text": "i bite the kobold", "action": "attack"}
+{"text": "i shove the guard into the wall", "action": "attack"}
+{"text": "cast invisibility on me", "action": "cast"}
+{"text": "i use thunderwave on the guards", "action": "cast"}
+{"text": "i cast detect magic", "action": "cast"}
+{"text": "healing word on mira", "action": "cast"}
+{"text": "i cast mage hand to grab the key", "action": "cast"}
+{"text": "use sacred flame on the skeleton", "action": "cast"}
+{"text": "repeat that action", "action": "repeat_last"}
+{"text": "same thing as before", "action": "repeat_last"}
+{"text": "one more time please", "action": "repeat_last"}
+{"text": "i do that again", "action": "repeat_last"}
+{"text": "lets make camp here", "action": "rest"}
+{"text": "i need a quick rest", "action": "rest"}
+{"text": "we bed down until dawn", "action": "rest"}
+{"text": "take a breather for an hour", "action": "rest"}
+{"text": "make an investigation check", "action": "roll"}
+{"text": "roll for persuasion", "action": "roll"}
+{"text": "i roll an athletics check", "action": "roll"}
+{"text": "give me a wisdom save", "action": "roll"}
+{"text": "i use the key on the cell door", "action": "use_item"}
+{"text": "i eat one of my rations", "action": "use_item"}
+{"text": "use the crowbar on the lid", "action": "use_item"}
+{"text": "i blow the hunting horn", "action": "use_item"}
+{"text": "i step closer to the altar", "action": "move"}
+{"text": "go down the eastern passage", "action": "move"}
+{"text": "i back away from the monster", "action": "move"}
+{"text": "i climb onto the roof", "action": "move"}

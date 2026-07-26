@@ -1,0 +1,58 @@
+{"text": "hey there", "action": "speak"}
+{"text": "greetings friend", "action": "speak"}
+{"text": "i say \"sorry about the tables\"", "action": "speak"}
+{"text": "my apologies for the damage, will gold fix it?", "action": "speak"}
+{"text": "what does the room look like", "action": "speak"}
+{"text": "i ask the barkeep for directions", "action": "speak"}
+{"text": "i thank her and sit down", "action": "speak"}
+{"text": "i attack the chair", "action": "attack"}
+{"text": "i strike the orc with my mace", "action": "attack"}
+{"text": "slash at the wolf", "action": "attack"}
+{"text": "i throw my spear at the guard", "action": "attack"}
+{"text": "i cast burning hands", "action": "cast"}
+{"text": "cast bless on the party", "action": "cast"}
+{"text": "let's try that again", "action": "repeat_last"}
+{"text": "i sleep until morning", "action": "rest"}
+{"text": "roll a d20 for insight", "action": "roll"}
+{"text": "i quaff my potion", "action": "use_item"}
+{"text": "i go through the north door", "action": "move"}
+{"text": "good day innkeeper", "action": "speak"}
+{"text": "i ask whether anyone saw the thief", "action": "speak"}
+{"text": "i tell the captain we come in peace", "action": "speak"}
+{"text": "forgive me for breaking the bench", "action": "speak"}
+{"text": "i smashed those crates last night", "action": "speak"}
+{"text": "i admit that i struck the merchant before", "action": "speak"}
+{"text": "could i repay you for the ruined door", "action": "speak"}
+{"text": "which road leads to the old keep", "action": "speak"}
+{"text": "i cleave the ghoul with my greataxe", "action": "attack"}
+{"text": "hit the window with the hammer", "action": "attack"}
+{"text": "i loose a bolt at the wyvern", "action": "attack"}
+{"text": "i headbutt the pirate", "action": "attack"}
+{"text": "break the chain with my sword", "action": "attack"}
+{"text": "i lunge at the assassin", "action": "attack"}
+{"text": "i slam my club into the chest", "action": "attack"}
+{"text": "i boot the kobold off the ledge", "action": "attack"}
+{"text": "i cast frostbite on the troll", "action": "cast"}
+{"text": "use misty step to cross the gap", "action": "cast"}
+{"text": "i cast speak with animals", "action": "cast"}
+{"text": "put guidance on the rogue", "action": "cast"}
+{"text": "can i redo that", "action": "repeat_last"}
+{"text": "perform the last move again", "action": "repeat_last"}
+{"text": "repeat what i just did", "action": "repeat_last"}
+{"text": "another time", "action": "repeat_last"}
+{"text": "we set up camp for eight hours", "action": "rest"}
+{"text": "i pause for a short rest", "action": "rest"}
+{"text": "everyone turns in for the evening", "action": "rest"}
+{"text": "lets recover here for a while", "action": "rest"}
+{"text": "make me an arcana roll", "action": "roll"}
+{"text": "i roll to intimidate the prisoner", "action": "roll"}
+{"text": "check my dexterity save", "action": "roll"}
+{"text": "roll survival to follow the tracks", "action": "roll"}
+{"text": "i apply the antitoxin", "action": "use_item"}
+{"text": "use my thieves tools on the lock", "action": "use_item"}
+{"text": "i read the spell scroll", "action": "use_item"}
+{"text": "i toss a ball bearing down the hall", "action": "use_item"}
+{"text": "i cross the bridge", "action": "move"}
+{"text": "walk over beside the wizard", "action": "move"}
+{"text": "i retreat into the hallway", "action": "move"}
+{"text": "climb down into the pit", "action": "move"}
