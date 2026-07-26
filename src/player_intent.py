@@ -11,8 +11,17 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 from .mechanics_claims import clarification_prompt
+from .intent_classifier import classify
+from .intent_config import intent_backend as _intent_backend
+from .intent_config import mechanics_margin as _mechanics_margin
+from .intent_slots import fill as fill_slots
 
 logger = logging.getLogger(__name__)
+
+# Mirrors intent_config.mechanics_margin() at import time for introspection
+# (e.g. eval scripts). The live gate in parse_player_intent re-reads the
+# setting on every call so environment/settings changes take effect at runtime.
+MECHANICS_MARGIN: float = _mechanics_margin()
 
 _INTENT_JSON_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
 
@@ -34,13 +43,6 @@ _SPEECH_ACT_RE = re.compile(
     re.I,
 )
 _QUOTED_DIALOGUE_RE = re.compile(r'''["“][^"”]{2,}["”]''')
-# Social repair / payment talk — must not become object attacks.
-_SOCIAL_DIALOGUE_RE = re.compile(
-    r"\b(?:i\s+)?(?:am\s+|i'?m\s+)?sorry\b|\bapolog|"
-    r"\bwill\s+\d+\s+gold\b|\bcover\s+(?:the\s+)?damage\b|"
-    r"\bhow\s+much\s+(?:\w+\s+){0,3}(?:gold|coin)",
-    re.I,
-)
 
 
 def is_speech_act(text: str) -> bool:
@@ -49,11 +51,6 @@ def is_speech_act(text: str) -> bool:
     if not raw:
         return False
     return bool(_SPEECH_ACT_RE.search(raw) or _QUOTED_DIALOGUE_RE.search(raw))
-
-
-def is_social_dialogue(text: str) -> bool:
-    """True for apology / paying for damage — conversation, not a live attack."""
-    return bool(text and _SOCIAL_DIALOGUE_RE.search(text))
 
 @dataclass
 class PlayerIntent:
@@ -303,34 +300,11 @@ def fail_closed_clarify(raw: str, reason: str = "parse") -> PlayerIntent:
 
 
 def normalize_intent_post_llm(intent: PlayerIntent) -> PlayerIntent:
-    """
-    Light post-process: discourse overrides when IntentLLM invents attacks.
-    World validation still happens in intent_resolver / target_resolve.
-    """
-    raw = intent.raw or ""
+    """Retained for the demoted llm backend and pending-clarify paths."""
     if intent.action == "repeat_last":
         intent.needs_clarify = False
         intent.clarify_prompt = None
         return intent
-
-    # Dialogue / apology must never resolve as a live attack on mentioned nouns.
-    if intent.action in ("attack", "unclear") and (
-        is_speech_act(raw) or is_social_dialogue(raw)
-    ):
-        logger.info(
-            "Discourse override %s → speak (%s)",
-            intent.action,
-            raw[:80],
-        )
-        intent.action = "speak"
-        intent.target = None
-        intent.method = None
-        intent.weapon_hint = None
-        intent.needs_clarify = False
-        intent.clarify_prompt = None
-        intent.source = "speech_act" if is_speech_act(raw) else "social_dialogue"
-        return intent
-
     if intent.action == "attack":
         return _apply_attack_clarify_policy(intent)
     return intent
@@ -362,38 +336,12 @@ def intent_from_last_attack_memory(
     )
 
 
-async def parse_player_intent(
-    text: str,
-    *,
-    weapon_names: Optional[Sequence[str]] = None,
-    npc_names: Optional[Sequence[str]] = None,
-    use_intent_llm: bool = True,
-    force_rules: bool = False,
+async def _parse_via_llm(
+    raw: str,
+    weapon_names: Optional[Sequence[str]],
+    npc_names: Optional[Sequence[str]],
 ) -> PlayerIntent:
-    """
-    Primary: IntentLLM → JSON.
-    Rules only for empty input, explicit force_rules, or INTENT_RULES_FALLBACK debug.
-    Fail closed to clarify on bad JSON / low confidence.
-    """
-    raw = (text or "").strip()
-    if not raw:
-        return PlayerIntent(action="speak", raw=raw, confidence=1.0, source="rules")
-
-    # Structural dialogue framing — skip IntentLLM (reliable, cheap).
-    if is_speech_act(raw) and not force_rules:
-        return PlayerIntent(
-            action="speak",
-            confidence=1.0,
-            raw=raw,
-            source="speech_act",
-        )
-
-    if force_rules or _rules_fallback_enabled():
-        return intent_from_rules(raw)
-
-    if not use_intent_llm:
-        return fail_closed_clarify(raw, "intent_llm_disabled")
-
+    """Legacy Qwen2.5-1.5B JSON path. Reachable only via INTENT_BACKEND=llm."""
     try:
         from .intent_llm import intent_llm
         from .target_resolve import list_known_npc_names
@@ -405,11 +353,95 @@ async def parse_player_intent(
         parsed = parse_intent_json(out or "", raw)
         if parsed is None:
             return fail_closed_clarify(raw, "bad_json")
-        parsed = normalize_intent_post_llm(parsed)
-        if parsed.confidence < 0.35 and parsed.action not in ("speak", "repeat_last"):
-            parsed.needs_clarify = True
-            parsed.clarify_prompt = parsed.clarify_prompt or clarification_prompt("action")
-        return parsed
-    except Exception as e:
-        logger.warning("Intent LLM failed: %s", e)
+        return normalize_intent_post_llm(parsed)
+    except Exception as exc:
+        logger.warning("Intent LLM failed: %s", exc)
         return fail_closed_clarify(raw, "timeout_or_error")
+
+
+async def parse_player_intent(
+    text: str,
+    *,
+    weapon_names: Optional[Sequence[str]] = None,
+    npc_names: Optional[Sequence[str]] = None,
+    spell_names: Optional[Sequence[str]] = None,
+    use_intent_llm: bool = True,
+    force_rules: bool = False,
+) -> PlayerIntent:
+    """
+    Embedding classifier decides the action; closed sets fill the slots.
+
+    Mechanics actions must clear both the margin gate and slot resolution.
+    Everything else becomes speak, which cannot corrupt game state.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return PlayerIntent(action="speak", raw=raw, confidence=1.0, source="rules")
+
+    # Structural dialogue framing — punctuation and syntax, not a verb list.
+    if is_speech_act(raw) and not force_rules:
+        return PlayerIntent(
+            action="speak", confidence=1.0, raw=raw, source="speech_act"
+        )
+
+    if force_rules or _rules_fallback_enabled():
+        return intent_from_rules(raw)
+
+    if _intent_backend() == "llm":
+        return await _parse_via_llm(raw, weapon_names, npc_names)
+
+    try:
+        result = classify(raw)
+    except Exception as exc:
+        logger.warning("Intent classifier failed, narrating instead: %s", exc)
+        return PlayerIntent(action="speak", confidence=0.0, raw=raw, source="embed")
+
+    action = result.action
+
+    if action not in ("attack", "cast"):
+        return PlayerIntent(
+            action=action,
+            confidence=result.margin,
+            raw=raw,
+            source="embed",
+        )
+
+    try:
+        from .target_resolve import list_known_npc_names
+
+        npcs = list(npc_names) if npc_names is not None else list_known_npc_names()
+        slots = fill_slots(
+            raw,
+            action,
+            weapon_names=weapon_names,
+            npc_names=npcs,
+            spell_names=spell_names,
+        )
+    except Exception as exc:
+        logger.warning("Slot filling failed, narrating instead: %s", exc)
+        return PlayerIntent(action="speak", confidence=0.0, raw=raw, source="embed")
+
+    margin_ok = result.margin >= _mechanics_margin()
+    if not margin_ok or not slots.resolved:
+        logger.info(
+            "Mechanics downgraded to speak: action=%s margin=%.3f resolved=%s raw=%r",
+            action,
+            result.margin,
+            slots.resolved,
+            raw[:80],
+        )
+        return PlayerIntent(
+            action="speak", confidence=result.margin, raw=raw, source="embed"
+        )
+
+    return PlayerIntent(
+        action=action,
+        target=slots.target,
+        method=slots.method,
+        weapon_hint=slots.weapon_hint,
+        spell_name=slots.spell_name,
+        needs_clarify=False,
+        confidence=result.margin,
+        raw=raw,
+        source="embed",
+    )

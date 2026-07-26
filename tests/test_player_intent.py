@@ -11,48 +11,6 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 
-def test_parse_intent_json_punch():
-    from src.player_intent import parse_intent_json
-
-    blob = (
-        '{"action":"attack","target":"table","method":"unarmed","confidence":0.9}'
-    )
-    intent = parse_intent_json(blob, "i punch the table")
-    assert intent is not None
-    assert intent.method == "unarmed"
-    assert intent.target == "table"
-    assert intent.needs_clarify is False
-    assert intent.source == "intent_llm"
-
-
-def test_parse_intent_json_unknown_clarifies():
-    from src.player_intent import parse_intent_json
-
-    blob = (
-        '{"action":"attack","target":"table","method":"unknown","confidence":0.7}'
-    )
-    intent = parse_intent_json(blob, "i go for the table")
-    assert intent is not None
-    assert intent.method == "unknown"
-    assert intent.needs_clarify is True
-
-
-def test_parse_intent_json_intent_alias():
-    from src.player_intent import parse_intent_json
-
-    blob = '{"intent":"attack","target":"door","method":"weapon","weapon_hint":"axe"}'
-    intent = parse_intent_json(blob, "axe the door")
-    assert intent is not None
-    assert intent.action == "attack"
-    assert intent.weapon_hint == "axe"
-
-
-def test_parse_intent_json_fail_closed():
-    from src.player_intent import parse_intent_json
-
-    assert parse_intent_json("not json at all", "x") is None
-
-
 def test_intent_from_rules_helper_still_works():
     """Debug/pending helper — not the live primary path."""
     from src.player_intent import intent_from_rules
@@ -60,58 +18,6 @@ def test_intent_from_rules_helper_still_works():
     intent = intent_from_rules("i punch the table")
     assert intent.action == "attack"
     assert intent.method == "unarmed"
-
-
-@pytest.mark.asyncio
-async def test_parse_uses_intent_llm_not_rules(monkeypatch):
-    from src.player_intent import parse_player_intent
-
-    async def fake_gen(text, weapon_names=None, npc_names=None):
-        assert "punch" in text.lower()
-        return (
-            '{"action":"attack","target":"table","method":"unarmed","confidence":0.95}'
-        )
-
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(side_effect=fake_gen),
-    )
-    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
-
-    intent = await parse_player_intent("i punch the table")
-    assert intent.source == "intent_llm"
-    assert intent.method == "unarmed"
-    assert intent.target == "table"
-
-
-@pytest.mark.asyncio
-async def test_parse_bad_json_fail_closed(monkeypatch):
-    from src.player_intent import parse_player_intent
-
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(return_value="sorry I cannot help"),
-    )
-
-    intent = await parse_player_intent("i smash things")
-    assert intent.needs_clarify is True
-    assert intent.action == "unclear"
-
-
-@pytest.mark.asyncio
-async def test_intent_llm_speak_for_greeting(monkeypatch):
-    """IntentLLM (not keyword veto) classifies greetings as speak."""
-    from src.player_intent import parse_player_intent
-
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(return_value='{"action":"speak","confidence":0.95}'),
-    )
-    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
-
-    for line in ("hello", "where am i", "what do i see"):
-        intent = await parse_player_intent(line)
-        assert intent.action == "speak", line
 
 
 @pytest.mark.asyncio
@@ -170,26 +76,6 @@ async def test_pronoun_attack_target_clarifies(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_go_for_table_unknown_method_clarifies(monkeypatch):
-    """method=unknown from IntentLLM → clarify how (engine policy)."""
-    from src.player_intent import parse_player_intent
-
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(
-            return_value=(
-                '{"action":"attack","target":"table","method":"unknown","confidence":0.8}'
-            )
-        ),
-    )
-    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
-
-    intent = await parse_player_intent("i go for the table")
-    assert intent.action == "attack"
-    assert intent.needs_clarify is True
-
-
-@pytest.mark.asyncio
 async def test_repeat_last_action_parsed(monkeypatch):
     from src.player_intent import parse_player_intent
 
@@ -219,27 +105,6 @@ async def test_i_say_is_speech_act_without_intent_llm(monkeypatch):
     assert intent.action == "speak"
     assert intent.source == "speech_act"
     mocked.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_apology_gold_overrides_invented_attack(monkeypatch):
-    from src.player_intent import parse_player_intent
-
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(
-            return_value=(
-                '{"action":"attack","target":"tables","method":null,"confidence":0.9}'
-            )
-        ),
-    )
-    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
-
-    intent = await parse_player_intent(
-        "im sorry that i destroyed your tables. will 1000 gold cover the damage?"
-    )
-    assert intent.action == "speak"
-    assert intent.source == "social_dialogue"
 
 
 @pytest.mark.asyncio

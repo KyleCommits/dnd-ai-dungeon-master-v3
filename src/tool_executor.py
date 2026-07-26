@@ -446,7 +446,6 @@ async def run_tool_loop(
                 if (
                     last
                     and not player_intent_mod.is_speech_act(working_message)
-                    and not player_intent_mod.is_social_dialogue(working_message)
                 ):
                     return (
                         f"Attack again with {last.weapon or 'your weapon'} against "

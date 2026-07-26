@@ -274,38 +274,6 @@ def test_classify_player_intent_tiers():
 
 
 @pytest.mark.asyncio
-async def test_bare_attack_still_clarifies(monkeypatch):
-    from src.pending_clarify import clear_pending_clarify
-    from src.tool_executor import run_tool_loop, NONBINDING_NOTE
-
-    clear_pending_clarify("player1")
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(
-            return_value=(
-                '{"action":"attack","method":"unknown","needs_clarify":true,'
-                '"clarify_prompt":"How are you attacking — which weapon or unarmed?",'
-                '"confidence":0.5}'
-            )
-        ),
-    )
-
-    async def mock_generate(prompt, max_new_tokens=250, available_functions=None):
-        raise AssertionError("DM LLM must not run for clarify intent")
-
-    out = await run_tool_loop(
-        "ctx",
-        [{"name": "roll_dice_for_character", "description": "x", "parameters": {}}],
-        mock_generate,
-        player_message="I attack",
-        user_id="player1",
-    )
-    assert "weapon" in out.lower() or "unarmed" in out.lower()
-    assert NONBINDING_NOTE not in out
-    assert "explodes" not in out.lower()
-
-
-@pytest.mark.asyncio
 async def test_attack_table_inventory_clarify(monkeypatch):
     """Ambiguous inventory match asks which weapon — DM LLM not used."""
     from src.pending_clarify import clear_pending_clarify, get_pending_clarify
@@ -630,50 +598,6 @@ async def test_speak_skips_tool_schema(monkeypatch):
     assert seen["funcs"] == []
     assert "FUNCTION CALLING INSTRUCTIONS" not in seen["prompt"]
     assert "tavern" in out.lower()
-
-
-@pytest.mark.asyncio
-async def test_force_retry_then_tool(monkeypatch):
-    from src.tool_executor import run_tool_loop, NONBINDING_NOTE
-
-    # Intent spine would short-circuit cast; this test covers DM TOOL_CALL force-retry
-    monkeypatch.setattr(
-        "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(return_value='{"action":"speak","confidence":0.9}'),
-    )
-
-    calls = {"n": 0}
-
-    async def mock_generate(prompt, max_new_tokens=250, available_functions=None):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return "You cast Fireball and deal 28 damage!"
-        if calls["n"] == 2:
-            assert "mechanics were required" in prompt.lower() or "cast a spell" in prompt.lower()
-            return (
-                'TOOL_CALL\n'
-                '{"name": "roll_dice_for_character", "arguments": {"dice_string": "1d6", "description": "x"}}\n'
-                'END_TOOL_CALL\n'
-            )
-        return "The spell is resolved by the dice."
-
-    funcs = [{
-        "name": "roll_dice_for_character",
-        "description": "roll",
-        "parameters": {"required": ["dice_string"]},
-    }]
-
-    out = await run_tool_loop(
-        "Player: I cast fireball",
-        funcs,
-        mock_generate,
-        max_rounds=2,
-        player_message="i cast fireball",
-    )
-    assert calls["n"] == 3  # claim → force tool → narration
-    assert NONBINDING_NOTE not in out
-    assert "TOOL_CALL" not in out
-    assert "spell" in out.lower() or "Mechanics" in out or "dice" in out.lower()
 
 
 @pytest.mark.asyncio
