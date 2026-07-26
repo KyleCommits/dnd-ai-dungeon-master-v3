@@ -15,21 +15,41 @@ logger = logging.getLogger(__name__)
 def build_intent_prompt(
     text: str,
     weapon_names: Optional[Sequence[str]] = None,
+    npc_names: Optional[Sequence[str]] = None,
 ) -> str:
     weapons = ", ".join(weapon_names) if weapon_names else "(none listed)"
+    npcs = ", ".join(npc_names) if npc_names else "(none listed)"
     return (
         "You extract D&D player intent. Reply with ONE JSON object only. No markdown.\n"
         "Keys: action, target, method, weapon_hint, spell_name, needs_clarify, "
         "clarify_prompt, confidence.\n"
-        "action: attack|cast|rest|roll|use_item|move|speak|unclear\n"
+        "action: attack|cast|rest|roll|use_item|move|speak|repeat_last|unclear\n"
         "method: unarmed|weapon|improvised|unknown|null\n"
         "Rules:\n"
-        "- punch/kick/fist/slap => method=unarmed\n"
-        "- named weapon => method=weapon and weapon_hint\n"
-        "- attack but unclear how => method=unknown\n"
-        "- cast => action=cast and spell_name\n"
-        "- pure roleplay/chat => action=speak\n"
-        f"Allowed weapon names (hints only): {weapons}\n"
+        "- greetings, questions, flirtation, look around => speak\n"
+        "- 'i say …', 'i tell …', quoted dialogue => ALWAYS speak\n"
+        "- apologies, offering gold, talking about PAST damage => speak\n"
+        "- Mentioning tables/weapons inside conversation is NOT an attack\n"
+        "- attack ONLY if the player is trying to hit something RIGHT NOW\n"
+        "- punch/kick/fist/slap => attack method=unarmed\n"
+        "- 'i attack the X' => attack (method=null if no weapon named)\n"
+        "- named NPC as live attack target => attack that name\n"
+        "- try again / and again / once more => repeat_last\n"
+        "- cast => cast + spell_name\n"
+        "Examples:\n"
+        '{"action":"speak","confidence":0.95}  // hello!\n'
+        '{"action":"speak","confidence":0.95}  // i say hello\n'
+        '{"action":"speak","confidence":0.95}'
+        '  // im sorry i destroyed your tables. will 1000 gold cover it?\n'
+        '{"action":"speak","confidence":0.95}'
+        '  // i say "sorry about the tables — will gold cover it?"\n'
+        '{"action":"attack","target":"table","method":null,"confidence":0.9}'
+        '  // i attack the table\n'
+        '{"action":"attack","target":"Mira","method":null,"confidence":0.9}'
+        '  // i attack Mira\n'
+        '{"action":"repeat_last","confidence":0.95}  // try again\n'
+        f"Allowed weapon names (hints): {weapons}\n"
+        f"Known NPCs (hints): {npcs}\n"
         f'Player: "{text}"\n'
         "JSON:"
     )
@@ -41,11 +61,11 @@ class IntentLLM:
     def __init__(self) -> None:
         self.pipeline = None
         self.model_name = getattr(
-            settings, "INTENT_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct"
+            settings, "INTENT_MODEL_NAME", "Qwen/Qwen2.5-1.5B-Instruct"
         )
         self.device = (getattr(settings, "INTENT_DEVICE", "cpu") or "cpu").lower()
-        self.timeout_sec = float(getattr(settings, "INTENT_TIMEOUT_SEC", 12.0) or 12.0)
-        self.max_new_tokens = int(getattr(settings, "INTENT_MAX_NEW_TOKENS", 80) or 80)
+        self.timeout_sec = float(getattr(settings, "INTENT_TIMEOUT_SEC", 20.0) or 20.0)
+        self.max_new_tokens = int(getattr(settings, "INTENT_MAX_NEW_TOKENS", 100) or 100)
         self._load_failed = False
 
     def load(self) -> None:
@@ -82,7 +102,11 @@ class IntentLLM:
                     tokenizer=tokenizer,
                     device=-1,
                 )
-            logger.info("Intent model loaded successfully.")
+            logger.info(
+                "IntentLLM ready on %s (by design; DM narrator stays on GPU) model=%s",
+                self.device,
+                self.model_name,
+            )
         except Exception:
             logger.exception("Failed to load intent model %s", self.model_name)
             self.pipeline = None
@@ -92,26 +116,24 @@ class IntentLLM:
         self,
         text: str,
         weapon_names: Optional[Sequence[str]] = None,
+        npc_names: Optional[Sequence[str]] = None,
     ) -> str:
         """Return raw model text expected to contain a JSON object."""
-        prompt = build_intent_prompt(text, weapon_names)
+        prompt = build_intent_prompt(text, weapon_names, npc_names)
         if not self.pipeline and not self._load_failed:
             await asyncio.to_thread(self.load)
         if not self.pipeline:
-            raise RuntimeError("intent model not available")
+            raise RuntimeError("Intent model unavailable")
 
-        def _sync() -> str:
+        def _run() -> str:
             tokenizer = self.pipeline.tokenizer
             messages = [{"role": "user", "content": prompt}]
-            try:
+            if hasattr(tokenizer, "apply_chat_template"):
                 formatted = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
+                    messages, tokenize=False, add_generation_prompt=True
                 )
-            except Exception:
+            else:
                 formatted = prompt
-
             outputs = self.pipeline(
                 formatted,
                 max_new_tokens=self.max_new_tokens,
@@ -119,13 +141,13 @@ class IntentLLM:
                 return_full_text=True,
                 pad_token_id=tokenizer.eos_token_id,
             )
-            generated = outputs[0]["generated_text"]
-            if generated.startswith(formatted):
-                return generated[len(formatted) :].strip()
-            return generated.strip()
+            full = outputs[0]["generated_text"]
+            if full.startswith(formatted):
+                return full[len(formatted) :].strip()
+            return full.strip()
 
         return await asyncio.wait_for(
-            asyncio.to_thread(_sync),
+            asyncio.to_thread(_run),
             timeout=self.timeout_sec,
         )
 

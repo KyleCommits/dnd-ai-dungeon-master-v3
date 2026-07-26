@@ -17,12 +17,24 @@ _CLAIM_PATTERNS = [
     re.compile(r"\brolls?\s+a\s+\d+\b", re.I),
     re.compile(r"\bnat(?:ural)?\s*20\b", re.I),
     re.compile(r"\bnat(?:ural)?\s*1\b", re.I),
-    re.compile(r"\bcast(?:s|ing)?\s+[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3}\b", re.I),
+    # Real spell casts — not "casts a glance / her eyes / a smile"
+    re.compile(
+        r"\bcast(?:s|ing)?\s+(?:the\s+spell\s+)?"
+        r"(?!a\s+(?:glance|look|eye|eyes|smile|shadow)\b)"
+        r"(?!an?\s+)(?!her\s+)(?!his\s+)(?!their\s+)(?!your\s+)(?!my\s+)"
+        r"[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3}\b",
+        re.I,
+    ),
     re.compile(r"\b(?:spend|spends|spent|consume[sd]?)\s+(?:a\s+)?(?:spell\s+)?slot\b", re.I),
     re.compile(r"\b(?:critical\s+hit|crit(?:s|ted)?)\b", re.I),
     re.compile(r"\b(?:advantage|disadvantage)\b.*\b(?:roll|d20)\b", re.I),
     re.compile(r"\bmagical\s+energy\b", re.I),
     re.compile(r"\b(?:fireball|magic\s+missile|cure\s+wounds)\b", re.I),
+    # Invented attack outcomes (soft-RP must not narrate hit/miss without tools)
+    re.compile(r"\b(?:your|the)\s+(?:swing|blow|strike|attack)\s+miss(?:es|ed)?\b", re.I),
+    re.compile(r"\bmiss(?:es|ed)?\s+(?:the\s+)?(?:table|target|goblin|door|orc)\b", re.I),
+    re.compile(r"\b(?:hits?|strikes?|connects?)\s+(?:the\s+)?(?:table|target|goblin|door)\b", re.I),
+    re.compile(r"\bnot even close\b", re.I),
 ]
 
 _CAST_SPELL_RE = re.compile(
@@ -62,13 +74,19 @@ _CLARIFY_TRY_RE = re.compile(
     re.I,
 )
 
+# Weapon-ish tokens only — do NOT match "with you" / "with her" (false attack cues).
+_WEAPON_METHOD_WORDS = (
+    r"sword|longsword|shortsword|greatsword|axe|bow|dagger|mace|spear|staff|club|"
+    r"unarmed|fist|fists|hands|rapier|greataxe|battleaxe|crossbow|javelin|"
+    r"quarterstaff|improvised|scimitar|warhammer|handaxe|shortbow|longbow"
+)
+
 # Attack is "clear enough" for AUTO only when method is specified (weapon/unarmed/etc).
 _ATTACK_METHOD_RE = re.compile(
-    r"\b(?:with\s+(?:my\s+)?[\w\-]+|using\s+(?:my\s+)?[\w\-]+|"
-    r"my\s+(?:sword|longsword|shortsword|greatsword|axe|bow|dagger|mace|spear|staff|club)|"
-    r"unarmed|fist|bare\s+hands|"
-    r"longsword|shortsword|greatsword|rapier|greataxe|battleaxe|mace|dagger|bow|crossbow|"
-    r"javelin|spear|club|quarterstaff|sword|improvised)\b",
+    rf"\b(?:with\s+(?:my\s+|the\s+)?(?:{_WEAPON_METHOD_WORDS})|"
+    rf"using\s+(?:my\s+|the\s+)?(?:{_WEAPON_METHOD_WORDS})|"
+    rf"my\s+(?:{_WEAPON_METHOD_WORDS})|"
+    rf"(?:{_WEAPON_METHOD_WORDS})|bare\s+hands)\b",
     re.I,
 )
 

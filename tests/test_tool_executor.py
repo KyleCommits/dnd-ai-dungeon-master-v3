@@ -117,8 +117,14 @@ async def test_execute_modify_hp_if_character():
 
 
 @pytest.mark.asyncio
-async def test_run_tool_loop_with_mock_generate():
+async def test_run_tool_loop_with_mock_generate(monkeypatch):
     from src.tool_executor import run_tool_loop
+
+    # Avoid empty/speak short-circuit; this test covers TOOL_CALL → narrate loop
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"move","confidence":0.9}'),
+    )
 
     calls = {"n": 0}
 
@@ -146,6 +152,7 @@ async def test_run_tool_loop_with_mock_generate():
         funcs,
         mock_generate,
         max_rounds=2,
+        player_message="I walk toward the door",
     )
     assert "TOOL_CALL" not in out
     assert "blade" in out.lower() or "Mechanics" in out
@@ -221,11 +228,14 @@ def test_prose_claims_mechanics_table():
         "Bob casts Fireball at the pack.",
         "You spend a spell slot.",
         "A burst of magical energy fills the room.",
+        "Your swing misses the table yet again.",
     ]
     negatives = [
         "The tavern smells of ale and salt.",
         "Mira smiles and offers you a seat.",
         "You ask the mayor about the docks.",
+        "Mira casts a glance your way and smiles.",
+        "She casts her eyes toward the door.",
     ]
     for s in positives:
         assert prose_claims_mechanics(s) is True, s
@@ -393,6 +403,233 @@ async def test_clarify_followup_sword_resolves_attack(monkeypatch):
     assert "Damage: 6" in out
     assert "boarding up the windows" not in out.lower()
     assert NONBINDING_NOTE not in out
+
+
+@pytest.mark.asyncio
+async def test_try_again_uses_last_attack(monkeypatch):
+    from src.last_attack import clear_last_attack, set_last_attack
+    from src.pending_clarify import clear_pending_clarify
+    from src.tool_executor import run_tool_loop
+
+    clear_pending_clarify("player1")
+    clear_last_attack("player1")
+    set_last_attack("player1", target="table", weapon="Longsword", raw="i attack the table")
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
+    )
+
+    called = AsyncMock(
+        return_value={
+            "success": True,
+            "hit": False,
+            "target_kind": "object",
+            "target_name": "table",
+            "weapon": "Longsword",
+            "attack_total": 10,
+            "ac": 15,
+            "message": "miss",
+        }
+    )
+    monkeypatch.setattr(
+        "src.game_actions.game_actions.resolve_player_attack",
+        called,
+    )
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "SHOULD NOT NARRATE A MISS"
+
+    out = await run_tool_loop(
+        "ctx",
+        [{"name": "resolve_player_attack", "description": "x", "parameters": {}}],
+        mock_generate,
+        player_message="i try again",
+        user_id="player1",
+        character_id="4",
+    )
+    called.assert_awaited()
+    kwargs = called.await_args.kwargs
+    assert "table" in kwargs["target_name"].lower()
+    assert "longsword" in kwargs["method"].lower()
+    assert "Rolling attack" in out
+    assert "SHOULD NOT" not in out
+
+
+def test_and_again_rewrites_from_last_attack():
+    from src.last_attack import clear_last_attack, rewrite_from_last_attack, set_last_attack
+
+    clear_last_attack("player1")
+    set_last_attack("player1", target="next table", weapon="Longsword")
+    for line in ("and again", "once more", "i go again"):
+        out = rewrite_from_last_attack("player1", line)
+        assert out is not None, line
+        assert "next table" in out.lower()
+        assert "longsword" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_and_again_resolves_attack(monkeypatch):
+    from src.last_attack import clear_last_attack, set_last_attack
+    from src.pending_clarify import clear_pending_clarify
+    from src.tool_executor import run_tool_loop
+
+    clear_pending_clarify("player1")
+    clear_last_attack("player1")
+    set_last_attack("player1", target="next table", weapon="Longsword")
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
+    )
+
+    called = AsyncMock(
+        return_value={
+            "success": True,
+            "hit": True,
+            "target_kind": "object",
+            "target_name": "next table",
+            "weapon": "Longsword",
+            "attack_total": 16,
+            "ac": 13,
+            "damage": 5,
+            "damage_detail": "1d8+3",
+            "object_hp_remaining": 3,
+            "object_max_hp": 8,
+            "destroyed": False,
+            "message": "hit",
+        }
+    )
+    monkeypatch.setattr(
+        "src.game_actions.game_actions.resolve_player_attack",
+        called,
+    )
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "Mira glares."
+
+    out = await run_tool_loop(
+        "ctx",
+        [{"name": "resolve_player_attack", "description": "x", "parameters": {}}],
+        mock_generate,
+        player_message="and again",
+        user_id="player1",
+        character_id="4",
+    )
+    called.assert_awaited()
+    assert "next table" in called.await_args.kwargs["target_name"].lower()
+    assert "Rolling attack" in out
+
+
+@pytest.mark.asyncio
+async def test_use_sword_with_last_target(monkeypatch):
+    from src.last_attack import clear_last_attack, set_last_attack
+    from src.pending_clarify import clear_pending_clarify
+    from src.tool_executor import run_tool_loop
+
+    clear_pending_clarify("player1")
+    clear_last_attack("player1")
+    set_last_attack("player1", target="table", weapon="unarmed", raw="i attack the table")
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(
+            return_value=(
+                '{"action":"attack","target":null,"method":"weapon",'
+                '"weapon_hint":"sword","confidence":0.9}'
+            )
+        ),
+    )
+
+    called = AsyncMock(
+        return_value={
+            "success": True,
+            "hit": True,
+            "target_kind": "object",
+            "target_name": "table",
+            "weapon": "Longsword",
+            "attack_total": 18,
+            "ac": 15,
+            "damage": 5,
+            "damage_detail": "1d8+3",
+            "object_hp_remaining": 5,
+            "object_max_hp": 10,
+            "destroyed": False,
+            "message": "hit",
+        }
+    )
+    monkeypatch.setattr(
+        "src.game_actions.game_actions.resolve_player_attack",
+        called,
+    )
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "I'm using my longsword."
+
+    out = await run_tool_loop(
+        "ctx",
+        [{"name": "resolve_player_attack", "description": "x", "parameters": {}}],
+        mock_generate,
+        player_message="this time i use my sword!",
+        user_id="player1",
+        character_id="4",
+    )
+    called.assert_awaited()
+    assert "sword" in called.await_args.kwargs["method"].lower()
+    assert "Rolling attack" in out
+    assert "I'm using my longsword" not in out
+
+
+@pytest.mark.asyncio
+async def test_speak_rejects_invented_mechanics(monkeypatch):
+    from src.last_attack import clear_last_attack, set_last_attack
+    from src.tool_executor import run_tool_loop
+
+    clear_last_attack("player1")
+    set_last_attack("player1", target="table", weapon="Longsword")
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"speak","confidence":0.9}'),
+    )
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "Your swing misses the table yet again. That's not even close."
+
+    out = await run_tool_loop(
+        "ctx",
+        [],
+        mock_generate,
+        player_message="hmm interesting",
+        user_id="player1",
+    )
+    assert "try again" in out.lower() or "longsword" in out.lower()
+    assert "not even close" not in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_speak_skips_tool_schema(monkeypatch):
+    """Soft RP must not prefill the full TOOL_CALL schema (latency)."""
+    from src.tool_executor import run_tool_loop
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"speak","confidence":0.95}'),
+    )
+
+    seen = {}
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        seen["funcs"] = available_functions
+        seen["prompt"] = prompt
+        return "The tavern hums around you."
+
+    out = await run_tool_loop(
+        "CONTEXT\n\nFUNCTION CALLING INSTRUCTIONS:\n- emit TOOL_CALL forever\n",
+        [{"name": "modify_hp", "description": "hp", "parameters": {"required": []}}],
+        mock_generate,
+        player_message="hello there",
+    )
+    assert seen["funcs"] == []
+    assert "FUNCTION CALLING INSTRUCTIONS" not in seen["prompt"]
+    assert "tavern" in out.lower()
 
 
 @pytest.mark.asyncio

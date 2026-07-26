@@ -18,6 +18,12 @@ from .mechanics_claims import (
     extract_cast_spell_name,
     prose_claims_mechanics,
 )
+from .last_attack import (
+    extract_method_from_followup,
+    get_last_attack,
+    is_method_only_followup,
+    rewrite_from_last_attack,
+)
 from .pending_clarify import (
     resolve_pending_followup,
     set_pending_clarify,
@@ -336,8 +342,8 @@ async def run_tool_loop(
     available_functions: List[Dict[str, Any]],
     generate_fn,
     max_rounds: int = 2,
-    max_new_tokens: int = 250,
-    max_narration_tokens: int = 200,
+    max_new_tokens: int = 160,
+    max_narration_tokens: int = 140,
     max_force_retries: int = 1,
     player_message: Optional[str] = None,
     character_id: Optional[str] = None,
@@ -360,25 +366,109 @@ async def run_tool_loop(
     resolved = resolve_pending_followup(uid, working_message)
     if resolved:
         working_message, intent_tier, intent_subtype = resolved
-    else:
-        intent_tier, intent_subtype = classify_player_intent(working_message)
-
-    # Pending follow-up: player already named a weapon/number — rules merge is enough
-    if resolved and intent_subtype in ("attack_clear", "attack", "attack_weapon"):
         player_intent = player_intent_mod.intent_from_rules(working_message)
         player_intent.source = "pending"
     else:
-        # Natural language → small IntentLLM (not the DM 8B model)
+        intent_tier, intent_subtype = classify_player_intent(working_message)
+        # Natural language → IntentLLM (primary). repeat_last hydrates from memory.
         player_intent = await player_intent_mod.parse_player_intent(
             working_message,
             weapon_names=weapon_names,
             use_intent_llm=True,
         )
+        if player_intent.action == "repeat_last":
+            hydrated = player_intent_mod.intent_from_last_attack_memory(
+                uid, working_message
+            )
+            if hydrated:
+                player_intent = hydrated
+            # else resolve_intent will ask for a fresh attack
+        elif (
+            player_intent.action == "attack"
+            and not player_intent.target
+            and get_last_attack(uid)
+        ):
+            # Method-only follow-up from IntentLLM: reuse last target
+            player_intent.target = get_last_attack(uid).target
+            player_intent.source = "last_attack"
+        elif player_intent.action == "speak":
+            # Thin bridge if IntentLLM misses try-again / method-only phrasing
+            rewritten = rewrite_from_last_attack(uid, working_message)
+            if rewritten:
+                logger.info(
+                    "Last-attack rewrite (IntentLLM spoke): %r → %r",
+                    working_message,
+                    rewritten,
+                )
+                player_intent = player_intent_mod.intent_from_rules(rewritten)
+                player_intent.source = "last_attack"
+            elif is_method_only_followup(working_message) and get_last_attack(uid):
+                method = extract_method_from_followup(working_message)
+                hydrated = player_intent_mod.intent_from_last_attack_memory(
+                    uid, working_message, weapon_override=method
+                )
+                if hydrated:
+                    player_intent = hydrated
 
     cast_spell = player_intent.spell_name or extract_cast_spell_name(working_message)
 
+    # Soft RP / speak: short GPU narrate WITHOUT the ~8k-char tool schema (was causing
+    # ~4k-token prefills and 90s timeouts on "hello").
+    if (
+        player_intent.action == "speak"
+        and not player_intent.needs_clarify
+        and not cast_spell
+    ):
+        narrate = initial_prompt
+        marker = "FUNCTION CALLING INSTRUCTIONS:"
+        if marker in narrate:
+            narrate = narrate.split(marker)[0].rstrip()
+        narrate = (
+            f"{narrate}\n\n"
+            f'Player says: "{working_message}"\n'
+            f"Respond as DM in 2-4 sentences of in-world narration only. "
+            f"Do NOT emit TOOL_CALL. Do NOT invent dice, HP, damage, or spell effects. "
+            f"Do NOT give yourself stage directions or tell the player what to type next."
+        )
+        try:
+            text = await generate_fn(
+                narrate,
+                max_new_tokens=max_narration_tokens,
+                available_functions=[],
+            )
+            cleaned = strip_tool_calls(text or "") or (
+                "The scene holds for a moment as you take in your surroundings."
+            )
+            if prose_claims_mechanics(cleaned):
+                last = get_last_attack(uid)
+                # Never tell a greeter/speaker to name a weapon. Only offer
+                # "try again" when we already have a last attack AND this isn't dialogue.
+                if (
+                    last
+                    and not player_intent_mod.is_speech_act(working_message)
+                    and not player_intent_mod.is_social_dialogue(working_message)
+                ):
+                    return (
+                        f"Attack again with {last.weapon or 'your weapon'} against "
+                        f"the {last.target}? Say \"try again\" or name the weapon."
+                    )
+                logger.warning(
+                    "Speak narration claimed mechanics; using safe fallback"
+                )
+                return (
+                    "The moment hangs in the air. Conversation continues around you — "
+                    "no dice were rolled."
+                )
+            return cleaned
+        except Exception:
+            logger.exception("speak narration failed")
+            return "The DM pauses, then nods for you to continue."
+
     # Layer 2–3: attack / cast / clarify via resolve_intent (before DM LLM)
-    if player_intent.action in ("attack", "cast", "unclear") or player_intent.needs_clarify:
+    if (
+        player_intent.action in ("attack", "cast", "unclear", "repeat_last")
+        or player_intent.needs_clarify
+    ):
         outcome = await resolve_intent(
             player_intent, character_id, allowed, user_id=uid
         )

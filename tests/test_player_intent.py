@@ -66,7 +66,7 @@ def test_intent_from_rules_helper_still_works():
 async def test_parse_uses_intent_llm_not_rules(monkeypatch):
     from src.player_intent import parse_player_intent
 
-    async def fake_gen(text, weapon_names=None):
+    async def fake_gen(text, weapon_names=None, npc_names=None):
         assert "punch" in text.lower()
         return (
             '{"action":"attack","target":"table","method":"unarmed","confidence":0.95}'
@@ -96,6 +96,174 @@ async def test_parse_bad_json_fail_closed(monkeypatch):
     intent = await parse_player_intent("i smash things")
     assert intent.needs_clarify is True
     assert intent.action == "unclear"
+
+
+@pytest.mark.asyncio
+async def test_intent_llm_speak_for_greeting(monkeypatch):
+    """IntentLLM (not keyword veto) classifies greetings as speak."""
+    from src.player_intent import parse_player_intent
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"speak","confidence":0.95}'),
+    )
+    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
+
+    for line in ("hello", "where am i", "what do i see"):
+        intent = await parse_player_intent(line)
+        assert intent.action == "speak", line
+
+
+@pytest.mark.asyncio
+async def test_bare_attack_keeps_model_method(monkeypatch):
+    """IntentLLM owns method; no English cue list rewrites unarmed → None."""
+    from src.player_intent import parse_player_intent
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(
+            return_value=(
+                '{"action":"attack","target":"table","method":null,"confidence":0.95}'
+            )
+        ),
+    )
+    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
+
+    intent = await parse_player_intent("i attack the table again!")
+    assert intent.action == "attack"
+    assert intent.target == "table"
+    assert intent.method is None
+    assert intent.needs_clarify is False
+
+
+def test_unknown_target_not_scene_object():
+    from src.target_resolve import resolve_attack_target
+
+    ref = resolve_attack_target("you")
+    assert ref.kind == "unknown"
+    ref2 = resolve_attack_target("table")
+    assert ref2.kind == "object"
+    assert ref2.name == "table"
+
+
+@pytest.mark.asyncio
+async def test_pronoun_attack_target_clarifies(monkeypatch):
+    """Bad IntentLLM attack@you is stopped by world target resolve, not verb lists."""
+    from src.intent_resolver import resolve_intent
+    from src.player_intent import PlayerIntent
+
+    outcome = await resolve_intent(
+        PlayerIntent(
+            action="attack",
+            target="you",
+            method="weapon",
+            weapon_hint="Longsword",
+            confidence=0.9,
+            raw="night with you",
+        ),
+        character_id="4",
+        allowed={"resolve_player_attack"},
+        user_id="player1",
+    )
+    assert outcome.handled
+    assert "who or what" in outcome.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_go_for_table_unknown_method_clarifies(monkeypatch):
+    """method=unknown from IntentLLM → clarify how (engine policy)."""
+    from src.player_intent import parse_player_intent
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(
+            return_value=(
+                '{"action":"attack","target":"table","method":"unknown","confidence":0.8}'
+            )
+        ),
+    )
+    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
+
+    intent = await parse_player_intent("i go for the table")
+    assert intent.action == "attack"
+    assert intent.needs_clarify is True
+
+
+@pytest.mark.asyncio
+async def test_repeat_last_action_parsed(monkeypatch):
+    from src.player_intent import parse_player_intent
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
+    )
+    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
+
+    intent = await parse_player_intent("try again")
+    assert intent.action == "repeat_last"
+
+
+@pytest.mark.asyncio
+async def test_i_say_is_speech_act_without_intent_llm(monkeypatch):
+    from src.player_intent import parse_player_intent
+
+    mocked = AsyncMock(return_value='{"action":"attack","target":"tables","confidence":0.9}')
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        mocked,
+    )
+    line = (
+        'i say "im sorry that i destroyed your tables. will 1000 gold cover the damage?"'
+    )
+    intent = await parse_player_intent(line)
+    assert intent.action == "speak"
+    assert intent.source == "speech_act"
+    mocked.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apology_gold_overrides_invented_attack(monkeypatch):
+    from src.player_intent import parse_player_intent
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(
+            return_value=(
+                '{"action":"attack","target":"tables","method":null,"confidence":0.9}'
+            )
+        ),
+    )
+    monkeypatch.setenv("INTENT_RULES_FALLBACK", "0")
+
+    intent = await parse_player_intent(
+        "im sorry that i destroyed your tables. will 1000 gold cover the damage?"
+    )
+    assert intent.action == "speak"
+    assert intent.source == "social_dialogue"
+
+
+@pytest.mark.asyncio
+async def test_hello_speak_mechanics_false_positive_safe_fallback(monkeypatch):
+    from src.tool_executor import run_tool_loop
+
+    monkeypatch.setattr(
+        "src.intent_llm.intent_llm.generate_intent_json",
+        AsyncMock(return_value='{"action":"speak","confidence":0.95}'),
+    )
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "Mira casts a glance your way and smiles."
+
+    out = await run_tool_loop(
+        "ctx",
+        [],
+        mock_generate,
+        player_message="hello!",
+        user_id="player1",
+    )
+    assert "if you are attacking" not in out.lower()
+    # Either real narration (cast-glance no longer flagged) or soft fallback
+    assert "weapon" not in out.lower() or "longsword" not in out.lower()
 
 
 @pytest.mark.asyncio

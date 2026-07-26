@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 _INTENT_JSON_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
 
 _VALID_ACTIONS = frozenset({
-    "attack", "cast", "rest", "roll", "use_item", "move", "speak", "unclear",
+    "attack", "cast", "rest", "roll", "use_item", "move", "speak",
+    "repeat_last", "unclear",
 })
 _VALID_METHODS = frozenset({"unarmed", "weapon", "improvised", "unknown"})
 
@@ -26,6 +27,33 @@ _UNARMED_ALIASES = frozenset({
     "elbow", "knee", "bare hands", "bare hand", "unarmed strike", "hands",
 })
 
+# Discourse framing (not attack-verb lists): player is speaking, not striking.
+_SPEECH_ACT_RE = re.compile(
+    r"^\s*i\s+(?:say|said|tell|told|ask|asked|whisper(?:s|ed)?|shout(?:s|ed)?|"
+    r"reply|replied|answer(?:s|ed)?)\b",
+    re.I,
+)
+_QUOTED_DIALOGUE_RE = re.compile(r'''["“][^"”]{2,}["”]''')
+# Social repair / payment talk — must not become object attacks.
+_SOCIAL_DIALOGUE_RE = re.compile(
+    r"\b(?:i\s+)?(?:am\s+|i'?m\s+)?sorry\b|\bapolog|"
+    r"\bwill\s+\d+\s+gold\b|\bcover\s+(?:the\s+)?damage\b|"
+    r"\bhow\s+much\s+(?:\w+\s+){0,3}(?:gold|coin)",
+    re.I,
+)
+
+
+def is_speech_act(text: str) -> bool:
+    """True when the utterance is framed as dialogue ('i say …' / quotes)."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(_SPEECH_ACT_RE.search(raw) or _QUOTED_DIALOGUE_RE.search(raw))
+
+
+def is_social_dialogue(text: str) -> bool:
+    """True for apology / paying for damage — conversation, not a live attack."""
+    return bool(text and _SOCIAL_DIALOGUE_RE.search(text))
 
 @dataclass
 class PlayerIntent:
@@ -274,21 +302,91 @@ def fail_closed_clarify(raw: str, reason: str = "parse") -> PlayerIntent:
     )
 
 
+def normalize_intent_post_llm(intent: PlayerIntent) -> PlayerIntent:
+    """
+    Light post-process: discourse overrides when IntentLLM invents attacks.
+    World validation still happens in intent_resolver / target_resolve.
+    """
+    raw = intent.raw or ""
+    if intent.action == "repeat_last":
+        intent.needs_clarify = False
+        intent.clarify_prompt = None
+        return intent
+
+    # Dialogue / apology must never resolve as a live attack on mentioned nouns.
+    if intent.action in ("attack", "unclear") and (
+        is_speech_act(raw) or is_social_dialogue(raw)
+    ):
+        logger.info(
+            "Discourse override %s → speak (%s)",
+            intent.action,
+            raw[:80],
+        )
+        intent.action = "speak"
+        intent.target = None
+        intent.method = None
+        intent.weapon_hint = None
+        intent.needs_clarify = False
+        intent.clarify_prompt = None
+        intent.source = "speech_act" if is_speech_act(raw) else "social_dialogue"
+        return intent
+
+    if intent.action == "attack":
+        return _apply_attack_clarify_policy(intent)
+    return intent
+
+
+def intent_from_last_attack_memory(
+    user_id: str,
+    raw: str = "",
+    *,
+    weapon_override: Optional[str] = None,
+) -> Optional[PlayerIntent]:
+    """Build an attack intent from the last resolved attack (repeat_last / follow-up)."""
+    from .last_attack import get_last_attack
+
+    last = get_last_attack(user_id)
+    if not last:
+        return None
+    weapon = (weapon_override if weapon_override is not None else last.weapon) or ""
+    weapon = weapon.strip()
+    unarmed = weapon.lower() == "unarmed"
+    return PlayerIntent(
+        action="attack",
+        target=last.target,
+        method="unarmed" if unarmed else ("weapon" if weapon else None),
+        weapon_hint=None if unarmed else (weapon or None),
+        confidence=1.0,
+        raw=raw or last.raw,
+        source="last_attack",
+    )
+
+
 async def parse_player_intent(
     text: str,
     *,
     weapon_names: Optional[Sequence[str]] = None,
+    npc_names: Optional[Sequence[str]] = None,
     use_intent_llm: bool = True,
     force_rules: bool = False,
 ) -> PlayerIntent:
     """
-    Primary: small IntentLLM → JSON.
+    Primary: IntentLLM → JSON.
     Rules only for empty input, explicit force_rules, or INTENT_RULES_FALLBACK debug.
-    Fail closed to clarify — never invent mechanics from keywords.
+    Fail closed to clarify on bad JSON / low confidence.
     """
     raw = (text or "").strip()
     if not raw:
         return PlayerIntent(action="speak", raw=raw, confidence=1.0, source="rules")
+
+    # Structural dialogue framing — skip IntentLLM (reliable, cheap).
+    if is_speech_act(raw) and not force_rules:
+        return PlayerIntent(
+            action="speak",
+            confidence=1.0,
+            raw=raw,
+            source="speech_act",
+        )
 
     if force_rules or _rules_fallback_enabled():
         return intent_from_rules(raw)
@@ -298,12 +396,17 @@ async def parse_player_intent(
 
     try:
         from .intent_llm import intent_llm
+        from .target_resolve import list_known_npc_names
 
-        out = await intent_llm.generate_intent_json(raw, weapon_names=weapon_names)
+        npcs = list(npc_names) if npc_names is not None else list_known_npc_names()
+        out = await intent_llm.generate_intent_json(
+            raw, weapon_names=weapon_names, npc_names=npcs
+        )
         parsed = parse_intent_json(out or "", raw)
         if parsed is None:
             return fail_closed_clarify(raw, "bad_json")
-        if parsed.confidence < 0.35 and parsed.action not in ("speak",):
+        parsed = normalize_intent_post_llm(parsed)
+        if parsed.confidence < 0.35 and parsed.action not in ("speak", "repeat_last"):
             parsed.needs_clarify = True
             parsed.clarify_prompt = parsed.clarify_prompt or clarification_prompt("action")
         return parsed

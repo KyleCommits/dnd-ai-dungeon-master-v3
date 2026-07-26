@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .attack_resolve import format_attack_reply
 from .game_actions import game_actions
+from .last_attack import set_last_attack
 from .pending_clarify import set_pending_clarify
 from .player_intent import PlayerIntent
 
@@ -43,15 +44,31 @@ async def _resolve_attack(
     allowed: Set[str],
     user_id: Optional[str],
 ) -> IntentOutcome:
+    from .target_resolve import resolve_attack_target
     from .tool_executor import execute_tool_calls
 
-    target = intent.target or "object"
+    ref = resolve_attack_target(intent.target)
+    if ref.kind == "unknown":
+        prompt = (
+            "Who or what are you attacking? Name a creature or object in the scene."
+        )
+        if user_id:
+            set_pending_clarify(user_id, "attack", intent.raw or "", options=[])
+        return IntentOutcome(
+            handled=True,
+            reply=prompt,
+            intent=intent,
+        )
+
+    target = ref.name or intent.target or "object"
+    # game_actions: npc/creature → combatant or out-of-combat NPC; object → scene object
+    kind = "creature" if ref.kind == "npc" else "object"
     method = _method_arg(intent)
     args = {
         "character_id": str(character_id),
         "target_name": target,
         "method": method,
-        "target_kind": "object",
+        "target_kind": kind,
     }
 
     if "resolve_player_attack" in allowed:
@@ -72,6 +89,13 @@ async def _resolve_attack(
         auto_results = [{"name": "resolve_player_attack", "arguments": args, "result": res}]
 
     if res.get("success"):
+        if user_id:
+            set_last_attack(
+                user_id,
+                target=str(res.get("target_name") or target),
+                weapon=str(res.get("weapon") or method or ""),
+                raw=intent.raw or "",
+            )
         return IntentOutcome(
             handled=True,
             reply=format_attack_reply(res),
@@ -191,6 +215,14 @@ async def resolve_intent(
             )
             set_pending_clarify(user_id, subtype, intent.raw or "", options=[])
         return IntentOutcome(handled=True, reply=prompt, intent=intent)
+
+    if intent.action == "repeat_last":
+        # Hydration happens in tool_executor; if we get here, no memory.
+        return IntentOutcome(
+            handled=True,
+            reply="No previous attack to repeat. Name a target and how you attack.",
+            intent=intent,
+        )
 
     if not character_id and intent.action in ("attack", "cast"):
         return IntentOutcome(

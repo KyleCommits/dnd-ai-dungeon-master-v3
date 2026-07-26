@@ -645,29 +645,91 @@ class GameActions:
 
                 kind = (target_kind or "").strip().lower()
                 tname = (target_name or "object").strip()
+                # World validate: pronouns / unknown already clarified upstream.
+                # npc|creature must NOT fall through to scene-object furniture.
 
                 # Creature path: match active encounter combatant by name
-                if kind != "object":
+                if kind in ("npc", "creature"):
                     for enc in getattr(self.combat_manager, "active_encounters", {}).values():
                         if not getattr(enc, "is_active", False):
                             continue
                         for c in getattr(enc, "combatants", []) or []:
-                            if c.name.lower() == tname.lower() and not getattr(c, "is_player", False):
+                            if c.name.lower() == tname.lower() and not getattr(
+                                c, "is_player", False
+                            ):
                                 attacker = next(
                                     (
                                         x
                                         for x in enc.combatants
-                                        if getattr(x, "character_id", None) == int(character_id)
+                                        if getattr(x, "character_id", None)
+                                        == int(character_id)
                                     ),
                                     None,
                                 )
                                 if attacker:
-                                    return await self.resolve_attack(enc.id, attacker.id, c.id)
-                                kind = "creature"
-                                break
+                                    return await self.resolve_attack(
+                                        enc.id, attacker.id, c.id
+                                    )
 
-                if kind != "creature":
-                    kind = "object"
+                    # Out-of-combat surprise attack on a known NPC (starts hostility)
+                    atk_roll = self.dice_roller.roll_dice(
+                        1, 20, attack_bonus, AdvantageType.NORMAL, "attack"
+                    )
+                    attack_total = atk_roll.total
+                    npc_ac = 12
+                    hit = attack_total >= npc_ac
+                    damage = 0
+                    damage_detail = ""
+                    if hit:
+                        dmg_match = re.match(r"(\d+)?d(\d+)", damage_dice.lower())
+                        count = int(dmg_match.group(1) or 1) if dmg_match else 1
+                        sides = int(dmg_match.group(2)) if dmg_match else 4
+                        dmg_roll = self.dice_roller.roll_dice(
+                            count, sides, abl_mod, AdvantageType.NORMAL, "damage"
+                        )
+                        damage = max(0, dmg_roll.total)
+                        damage_detail = f"{damage_dice}+{abl_mod}"
+                    try:
+                        await campaign_state_manager.update_npc_relationship(
+                            tname,
+                            f"Attacked by PC with {weapon_label}",
+                            trust_delta=-25 if hit else -10,
+                        )
+                    except Exception:
+                        logger.debug("NPC relationship update skipped", exc_info=True)
+                    if hit:
+                        flavor = (
+                            f"You strike {tname} with your {weapon_label} — "
+                            f"hostilities begin!"
+                        )
+                    else:
+                        flavor = (
+                            f"You swing at {tname} with your {weapon_label} and miss — "
+                            f"but the intent is clear. Combat is on!"
+                        )
+                    return {
+                        "success": True,
+                        "hit": hit,
+                        "target_kind": "npc",
+                        "target_name": tname,
+                        "method": weapon_label,
+                        "weapon": weapon_label,
+                        "from_inventory": choice.from_inventory,
+                        "attack_bonus": attack_bonus,
+                        "attack_total": attack_total,
+                        "d20": (
+                            atk_roll.individual_rolls[0]
+                            if atk_roll.individual_rolls
+                            else None
+                        ),
+                        "ac": npc_ac,
+                        "damage": damage if hit else None,
+                        "damage_detail": damage_detail if hit else None,
+                        "combat_started": True,
+                        "message": flavor,
+                    }
+
+                kind = "object"
 
                 atk_roll = self.dice_roller.roll_dice(
                     1, 20, attack_bonus, AdvantageType.NORMAL, "attack"

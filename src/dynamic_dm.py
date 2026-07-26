@@ -514,7 +514,7 @@ FUNCTION CALLING INSTRUCTIONS:
 - Never invent dice, HP, AC, damage, or trust numbers when a tool can supply them
 """
 
-            async def _gen(prompt, max_new_tokens=250, available_functions=None):
+            async def _gen(prompt, max_new_tokens=160, available_functions=None):
                 return await llm_manager.generate(
                     prompt,
                     max_new_tokens=max_new_tokens,
@@ -529,8 +529,8 @@ FUNCTION CALLING INSTRUCTIONS:
                 self.available_functions,
                 _gen,
                 max_rounds=2,
-                max_new_tokens=250,
-                max_narration_tokens=180,
+                max_new_tokens=160,
+                max_narration_tokens=140,
                 player_message=player_message,
                 character_id=str(active_character_id) if active_character_id else None,
                 user_id=user_id,
@@ -544,12 +544,25 @@ FUNCTION CALLING INSTRUCTIONS:
     async def _resolve_active_character(self, user_id: str, campaign_id: Optional[int]):
         if campaign_id is None:
             return None
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        from .character_models import Character
+
         async with async_session_scope() as db:
             character = await character_manager.get_active_character(db, user_id, campaign_id)
             if not character:
                 chars = await character_manager.get_user_characters(db, user_id, campaign_id)
                 character = chars[0] if chars else None
-            return character
+            if not character:
+                return None
+            # Re-fetch with equipment eagerly loaded (session expire_on_commit=False)
+            result = await db.execute(
+                select(Character)
+                .where(Character.id == character.id)
+                .options(selectinload(Character.equipment))
+            )
+            return result.scalar_one_or_none()
 
     async def _get_active_character_id(
         self, user_id: str = "player1", campaign_id: Optional[int] = None
@@ -589,18 +602,40 @@ FUNCTION CALLING INSTRUCTIONS:
         self, user_id: str = "player1", campaign_id: Optional[int] = None
     ) -> List[str]:
         """Inventory weapon names for Layer-1 intent hints (engine still validates ownership)."""
+        if campaign_id is None:
+            return []
         try:
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            from .character_models import Character
             from .weapon_choose import is_inventory_weapon
 
-            character = await self._resolve_active_character(user_id, campaign_id)
-            if not character:
-                return []
-            names: List[str] = []
-            for eq in getattr(character, "equipment", None) or []:
-                name = getattr(eq, "item_name", None)
-                if name and is_inventory_weapon(name):
-                    names.append(name)
-            return names
+            async with async_session_scope() as db:
+                character = await character_manager.get_active_character(
+                    db, user_id, campaign_id
+                )
+                if not character:
+                    chars = await character_manager.get_user_characters(
+                        db, user_id, campaign_id
+                    )
+                    character = chars[0] if chars else None
+                if not character:
+                    return []
+                result = await db.execute(
+                    select(Character)
+                    .where(Character.id == character.id)
+                    .options(selectinload(Character.equipment))
+                )
+                character = result.scalar_one_or_none()
+                if not character:
+                    return []
+                names: List[str] = []
+                for eq in character.equipment or []:
+                    name = getattr(eq, "item_name", None)
+                    if name and is_inventory_weapon(name):
+                        names.append(name)
+                return names
         except Exception as e:
             print(f"ERROR: error getting weapon names: {e}")
             return []
@@ -626,24 +661,24 @@ FUNCTION CALLING INSTRUCTIONS:
         session_summaries: List[SessionSummary]
     ) -> str:
         """
-        Build DM context sized for a 12GB GPU local Llama.
+        Build DM context sized for a 12GB GPU local narrator (Mistral 7B / Llama 8B).
         Do NOT inject the full campaign markdown (that OOMs attention).
         """
-        # Keep chat short; each message capped
-        recent = conversation_history[-8:] if conversation_history else []
+        # Keep chat short; each message capped (L1 latency: smaller prefill)
+        recent = conversation_history[-4:] if conversation_history else []
         history_lines = []
         for msg in recent:
             role = "Player" if msg.message_type == "player" else "DM"
-            content = (msg.content or "")[:400]
+            content = (msg.content or "")[:250]
             history_lines.append(f"{role}: {content}")
         history_str = "\n".join(history_lines) if history_lines else "No recent conversation."
 
         # Cap long-term memory
-        summary_str = self._format_session_summaries(session_summaries[-5:])
+        summary_str = self._format_session_summaries(session_summaries[-3:])
 
         # Compact world state (location, NPC trust, plot) + short campaign excerpt
         world_state = campaign_state_manager.get_campaign_context()
-        campaign_excerpt = await self._load_campaign_excerpt(max_chars=3500)
+        campaign_excerpt = await self._load_campaign_excerpt(max_chars=1800)
 
         return f"""
 # campaign state (live memory)

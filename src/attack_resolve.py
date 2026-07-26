@@ -188,11 +188,16 @@ def format_attack_reply(result: Dict) -> str:
                 lines.append(f"{name} HP now {thp}.")
     else:
         name = result.get("target_name") or "target"
-        lines.append(f"Your blow misses the {name}.")
+        if result.get("target_kind") == "npc":
+            lines.append(f"Your blow misses {name}.")
+        else:
+            lines.append(f"Your blow misses the {name}.")
 
     msg = result.get("message")
     if msg:
         lines.append(msg)
+    if result.get("combat_started"):
+        lines.append("(Combat initiated.)")
 
     # Compact mechanics footer
     lines.append("")

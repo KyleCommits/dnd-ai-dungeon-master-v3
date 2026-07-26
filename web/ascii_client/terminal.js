@@ -21,10 +21,18 @@
     if (btn) btn.disabled = busy;
   }
 
+  function timestampPrefix() {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `[${hh}:${mm}:${ss}]`;
+  }
+
   function appendLog(text, cls) {
     const line = document.createElement("div");
     if (cls) line.className = cls;
-    line.textContent = text;
+    line.textContent = `${timestampPrefix()} ${text}`;
     logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   }

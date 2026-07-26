@@ -21,7 +21,7 @@ Sit down alone, play a long-running campaign, leave, and come back later with co
 ### What works (playtested)
 
 - **ASCII browser terminal** as primary UI (`python start_web_system.py` → `http://localhost:<port>/`)
-- **Local Llama** DM replies (e.g. Llama 3.1 8B 8-bit on RTX 4080 mobile 12GB)
+- **Local Mistral 7B** DM replies (4-bit BitsAndBytes on RTX 4080 mobile 12GB; Llama 3.1 8B still selectable via `.env`)
 - **Campaign load** + **character select** (`/load`, `/chars`, `/active`, `/sheet`)
 - **Playtest sandbox**: seed PCs / NPCs+trust / monsters; reset DB / play data
 - **Offline rules**: MD/PDF → `data/rules.db` (~250 monsters, equipment tables)
@@ -34,7 +34,7 @@ Sit down alone, play a long-running campaign, leave, and come back later with co
 
 1. **Tool compliance (MVP shipped)** — TOOL_CALL harden + cast legality; **clarify-first intent** (vague `I attack` asks how; does not invent outcomes). Still playtest richer AUTO resolves after clarification.
 2. **Stronger grounding** — force `set_location` / world-state context so “where am I?” isn’t a generic tavern loop
-3. **Latency** — ~30–90s per reply on 4080 mobile + 8B is expected; shorter prompts / smaller or 4-bit model later
+3. **Latency (L1 in progress)** — default narrator is Mistral 7B 4-bit + tighter prompts; target soft-RP under ~15–20s. See `docs/LATENCY_EVAL_2026-07-26.md`. L2 (Ollama/llama.cpp) next if still slow.
 
 **Later:**
 
@@ -45,7 +45,7 @@ Sit down alone, play a long-running campaign, leave, and come back later with co
 
 ### Performance note (local GPU)
 
-On an **Alienware-class laptop (e.g. i9, 32GB RAM, RTX 4080 mobile 12GB VRAM)**, local 8B chat is playable but not instant. VRAM limits model/context size; reply time is mostly GPU decode + how large the prompt is. Faster path later: smaller model, better quantization, or cloud DM (not current policy).
+On an **Alienware-class laptop (e.g. i9, 32GB RAM, RTX 4080 mobile 12GB VRAM)**, local 7B/8B chat is playable but not instant. VRAM limits model/context size; reply time is mostly GPU decode + prompt size. L1 defaults: Mistral-7B-Instruct-v0.3 in 4-bit, smaller context, `generate_ms` logs. Multi-minute replies are treated as failures.
 
 ## Stack
 
@@ -60,7 +60,8 @@ On an **Alienware-class laptop (e.g. i9, 32GB RAM, RTX 4080 mobile 12GB VRAM)**,
 
 - Python **3.11** via `llama_env_311` (system Python 3.13 will break deps)
 - PostgreSQL + `vector` extension
-- Local Hugging Face model configured in `.env` (`LOCAL_MODEL_NAME` / path)
+- Local Hugging Face model in `.env` (`LOCAL_MODEL_NAME`, `LOCAL_LOAD_IN_4BIT` / `LOCAL_QUANTIZATION`)
+- Hugging Face login for gated models: accept license on the model page, then `huggingface-cli login`
 - Optional: Gemini / xAI for campaign generation (not required for play)
 
 ## Quick start
@@ -85,12 +86,14 @@ DATABASE_URL=postgresql+asyncpg://dnd:dnd_local@localhost:5432/dnd_bot_v3
 DISCORD_TOKEN=unused
 BOT_CHANNEL_ID=0
 OWNER_ID=0
-LOCAL_MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
-INTENT_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
+LOCAL_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
+LOCAL_LOAD_IN_4BIT=true
+LOCAL_QUANTIZATION=4bit
+INTENT_MODEL_NAME=Qwen/Qwen2.5-1.5B-Instruct
 INTENT_DEVICE=cpu
 ```
 
-Intent parsing uses a **small** local model (default Qwen 0.5B on CPU) that outputs JSON only. The 8B model narrates; the engine resolves combat/spells. First chat line may download the intent model.
+Intent parsing uses a small local model (default Qwen 1.5B on CPU) that outputs JSON only — including `repeat_last` and NPC name hints. The 7B narrator (4-bit) handles soft RP; the engine resolves combat/spells and validates attack targets against world state (NPC vs object). Prefetch: `huggingface-cli download mistralai/Mistral-7B-Instruct-v0.3` and `Qwen/Qwen2.5-1.5B-Instruct`.
 
 Postgres setup: [`scripts/LOCAL_DB_SETUP.md`](scripts/LOCAL_DB_SETUP.md).
 

@@ -45,6 +45,18 @@ def test_missing_weapon_hint():
     assert "Longsword" in (choice.prompt or "")
 
 
+def test_dirty_sword_hint_matches_longsword():
+    from src.weapon_choose import choose_weapon_from_inventory, extract_weapon_hint
+
+    assert extract_weapon_hint("sword to attack the table again") == "sword"
+    choice = choose_weapon_from_inventory(
+        [("Longsword", True)],
+        method_hint="sword to attack the table again",
+    )
+    assert choice.status == "ok"
+    assert choice.weapon_name == "Longsword"
+
+
 def test_unarmed_even_with_swords():
     from src.weapon_choose import choose_weapon_from_inventory
 

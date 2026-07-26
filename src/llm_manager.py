@@ -3,6 +3,7 @@
 Local transformers LLM manager — sole DM runtime (no Gemini for chat).
 """
 import logging
+import time
 import torch
 from typing import List, Dict, Any, Optional
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, AutoConfig
@@ -36,6 +37,23 @@ END_TOOL_CALL
 3) Illegal cast — still call tools; if they return an error, narrate failure (do not invent the spell effect).
 """
 
+# Soft-RP / tool-loop hard cap (L1 latency)
+_MAX_NEW_TOKENS_CAP = 180
+
+
+def _use_4bit() -> bool:
+    quant = str(getattr(settings, "LOCAL_QUANTIZATION", "4bit") or "4bit").lower().strip()
+    if quant in ("8bit", "8", "int8"):
+        return False
+    if quant in ("4bit", "4", "nf4", "int4"):
+        return True
+    return bool(getattr(settings, "LOCAL_LOAD_IN_4BIT", True))
+
+
+def _is_llama_family(model_name: str) -> bool:
+    name = (model_name or "").lower()
+    return "llama" in name and "mistral" not in name
+
 
 class LLMManager:
     def __init__(self):
@@ -46,6 +64,22 @@ class LLMManager:
         self.gemini_client = None
         logging.info(f"LLMManager initialized — local-only DM on {self.device}, model={self.model_name}")
 
+    def _build_quantization_config(self) -> BitsAndBytesConfig:
+        if _use_4bit():
+            compute = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+            logging.info("Loading DM model in 4-bit (nf4), compute_dtype=%s, no CPU offload", compute)
+            return BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=compute,
+            )
+        logging.info("Loading DM model in 8-bit (LOCAL_QUANTIZATION=8bit)")
+        return BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_enable_fp32_cpu_offload=False,
+        )
+
     def load_model(self):
         """Loads the Hugging Face model and tokenizer."""
         if self.pipeline:
@@ -55,19 +89,18 @@ class LLMManager:
         try:
             logging.info(f"Loading model: {self.model_name}...")
             tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-
-            quantization_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                llm_int8_enable_fp32_cpu_offload=True
-            )
+            quantization_config = self._build_quantization_config()
 
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-            if hasattr(config, "rope_scaling") and isinstance(config.rope_scaling, dict):
-                if 'rope_type' in config.rope_scaling:
+            # Llama 3.1 rope_scaling patch only — do not apply to Mistral
+            if _is_llama_family(self.model_name) and hasattr(config, "rope_scaling") and isinstance(
+                config.rope_scaling, dict
+            ):
+                if "rope_type" in config.rope_scaling:
                     logging.warning("Adapting Llama 3.1 rope_scaling config for current transformers version.")
-                    config.rope_scaling['type'] = config.rope_scaling.get('rope_type', 'llama3')
-                    if 'rope_type' in config.rope_scaling:
-                        del config.rope_scaling['rope_type']
+                    config.rope_scaling["type"] = config.rope_scaling.get("rope_type", "llama3")
+                    if "rope_type" in config.rope_scaling:
+                        del config.rope_scaling["rope_type"]
                     logging.info(f"Fixed rope_scaling: {config.rope_scaling}")
 
             model = AutoModelForCausalLM.from_pretrained(
@@ -77,16 +110,21 @@ class LLMManager:
                 device_map="auto",
                 quantization_config=quantization_config,
                 trust_remote_code=True,
-                ignore_mismatched_sizes=True
+                ignore_mismatched_sizes=True,
             )
 
             self.pipeline = pipeline(
                 "text-generation",
                 model=model,
                 tokenizer=tokenizer,
-                device_map="auto"
+                device_map="auto",
             )
-            logging.info("Model loaded successfully.")
+            logging.info(
+                "DM narrator ready on %s model=%s (4bit=%s)",
+                self.device,
+                self.model_name,
+                _use_4bit(),
+            )
         except Exception as e:
             logging.error(f"Failed to load the model: {e}")
             self.pipeline = None
@@ -123,7 +161,7 @@ class LLMManager:
         use_massive_context is accepted for API compatibility but does not route to cloud.
         """
         full_prompt = self.build_prompt_with_tools(prompt, available_functions)
-        logging.info("Using local transformers pipeline for DM generation")
+        logging.info("Using local transformers pipeline for DM generation (%s)", self.model_name)
         return await self._generate_local(full_prompt, max_new_tokens)
 
     def _truncate_prompt(self, prompt: str, max_new_tokens: int) -> str:
@@ -156,7 +194,7 @@ class LLMManager:
                 "The local AI model failed to initialize. Please restart the system."
             )
 
-        max_new_tokens = min(int(max_new_tokens or 200), 256)
+        max_new_tokens = min(int(max_new_tokens or 200), _MAX_NEW_TOKENS_CAP)
         prompt = self._truncate_prompt(prompt, max_new_tokens)
         messages = [{"role": "user", "content": prompt}]
 
@@ -170,7 +208,11 @@ class LLMManager:
                 )
                 # Second truncate after chat template
                 formatted_prompt = self._truncate_prompt(formatted_prompt, max_new_tokens)
+                prompt_tokens = len(
+                    self.pipeline.tokenizer.encode(formatted_prompt, add_special_tokens=False)
+                )
 
+                t0 = time.perf_counter()
                 outputs = self.pipeline(
                     formatted_prompt,
                     max_new_tokens=max_new_tokens,
@@ -180,10 +222,11 @@ class LLMManager:
                     repetition_penalty=1.1,
                     pad_token_id=self.pipeline.tokenizer.eos_token_id,
                 )
-                return outputs, formatted_prompt
+                generate_ms = (time.perf_counter() - t0) * 1000.0
+                return outputs, formatted_prompt, prompt_tokens, generate_ms
 
             try:
-                outputs, formatted_prompt = await asyncio.wait_for(
+                outputs, formatted_prompt, prompt_tokens, generate_ms = await asyncio.wait_for(
                     asyncio.to_thread(_generate_sync, prompt),
                     timeout=90.0,
                 )
@@ -193,6 +236,14 @@ class LLMManager:
                     "The DM takes too long to consider the situation and falls silent. "
                     "The local model timed out. Please try again."
                 )
+
+            logging.info(
+                "DM generate model=%s prompt_tokens=%s max_new_tokens=%s generate_ms=%.1f",
+                self.model_name,
+                prompt_tokens,
+                max_new_tokens,
+                generate_ms,
+            )
 
             generated_text = outputs[0]["generated_text"]
 

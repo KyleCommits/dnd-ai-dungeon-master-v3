@@ -59,8 +59,40 @@ def normalize_hint(hint: str) -> str:
     return h.strip(" .,!").lower()
 
 
+# Longest-first so "longsword" wins over "sword"
+_WEAPON_TOKENS_SORTED = tuple(
+    sorted(_WEAPON_NAME_TOKENS, key=len, reverse=True)
+)
+
+
+def extract_weapon_hint(hint: str) -> str:
+    """
+    Pull a clean weapon token from dirty IntentLLM hints.
+    e.g. "sword to attack the table again" → "sword"
+    """
+    h = normalize_hint(hint)
+    if not h:
+        return ""
+    if h in _UNARMED_HINTS or h.isdigit():
+        return h
+    # Prefer known weapon tokens appearing as whole words
+    for tok in _WEAPON_TOKENS_SORTED:
+        if re.search(rf"\b{re.escape(tok)}\b", h, re.I):
+            return tok
+    for alias in _UNARMED_HINTS:
+        if re.search(rf"\b{re.escape(alias)}\b", h, re.I):
+            return alias if " " not in alias else normalize_hint(alias)
+    # Fallback: first 1–3 words (drop trailing "to attack …")
+    h = re.split(r"\bto\b|\bagainst\b|\bat\b", h, maxsplit=1, flags=re.I)[0].strip()
+    words = h.split()
+    if not words:
+        return ""
+    return " ".join(words[:3]).strip(" .,!")
+
+
 def is_unarmed_hint(hint: str) -> bool:
-    return normalize_hint(hint) in _UNARMED_HINTS
+    cleaned = extract_weapon_hint(hint) or normalize_hint(hint)
+    return cleaned in _UNARMED_HINTS
 
 
 def is_inventory_weapon(item_name: str) -> bool:
@@ -128,7 +160,7 @@ def _format_options(names: Sequence[str]) -> str:
 
 
 def match_weapons(hint: str, weapon_names: Sequence[str]) -> List[str]:
-    h = normalize_hint(hint)
+    h = extract_weapon_hint(hint) or normalize_hint(hint)
     if not h:
         return []
     exact = [w for w in weapon_names if w.lower() == h]
@@ -173,7 +205,7 @@ def choose_weapon_from_inventory(
     if is_unarmed_hint(method_hint):
         return _ok_unarmed()
 
-    hint = normalize_hint(method_hint)
+    hint = extract_weapon_hint(method_hint) or normalize_hint(method_hint)
 
     # Numeric hint without prior_options: treat as invalid clarify
     if hint.isdigit():
