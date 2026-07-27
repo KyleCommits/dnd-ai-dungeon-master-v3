@@ -199,6 +199,42 @@ tests/
 3. The local LLM may emit `TOOL_CALL` blocks; `tool_executor` runs `GameActions`.
 4. Postgres / SQLite hold truth; the LLM narrates from tool results + truncated campaign/memory context.
 
+## Intent: fixing a misread line with data, not code
+
+Player text becomes a structured action before anything touches game state. An
+embedding classifier picks the action by nearest-neighbor vote over labeled examples
+in `data/intent/examples.jsonl`, then slot filling matches the target, weapon, or
+spell against what the database can prove exists.
+
+An `attack` or `cast` only reaches the dice if **both** gates hold: the classifier's
+margin clears `INTENT_MECHANICS_MARGIN` and the slots resolved. Anything else becomes
+narration. A missed attack is a mild annoyance; a hallucinated one rolls real dice and
+spends real resources, so uncertainty always falls toward talking.
+
+When the DM misreads a line, **add the line to the training data**. Do not add a
+keyword check, and do not raise the margin. Keyword lists are what this system
+replaced, and a higher margin does not make the bot safer, it silently turns real
+attacks into narration.
+
+```bash
+# 1. Append the utterance with the action it should have produced.
+#    action is one of: attack cast rest roll use_item move speak repeat_last
+echo '{"text": "i lob my axe at the ogre", "action": "attack"}' >> data/intent/examples.jsonl
+
+# 2. Re-score. The embedding cache rebuilds itself when the file changes.
+llama_env_311\Scripts\python.exe scripts/eval_intent.py
+
+# 3. Confirm the regression gate still holds.
+llama_env_311\Scripts\python.exe -m pytest tests/test_intent_classifier.py -q
+```
+
+`scripts/eval_intent.py` reports accuracy against the held-out set in
+`tests/data/intent_eval.jsonl`, counts speech-to-mechanics errors separately from
+other misroutes, and sweeps the margin so the threshold is measured rather than
+guessed. Never add a held-out row to the training file; that inflates the score
+without improving play. Adding examples for one action can outvote another, so read
+the gate output rather than assuming more data is always better.
+
 ## Testing
 
 ```bash

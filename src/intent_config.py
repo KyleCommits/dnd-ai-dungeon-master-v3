@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 FALLBACK_K = 5
-FALLBACK_MECHANICS_MARGIN = 0.10
+# Calibrated with scripts/eval_intent.py, not guessed. On the 58-row held-out set the
+# speech-to-mechanics count is zero at every threshold from 0.00 to 0.40, so the sweep
+# cannot justify a high value, while each increment costs real mechanics recall
+# (94.4% at 0.04, 88.9% at 0.10, 83.3% at 0.18). Adversarial probes showed why: speech
+# the classifier misreads reaches margins as high as 1.000, so no threshold catches it -
+# slot resolution is what actually stops it. 0.02 is the highest margin that downgrades
+# no correct attack or cast, and it still rejects a true tie, where the margin is 0.
+FALLBACK_MECHANICS_MARGIN = 0.02
 FALLBACK_BACKEND = "embed"
 
 IMPLEMENTED_BACKENDS = frozenset({"embed", "llm"})

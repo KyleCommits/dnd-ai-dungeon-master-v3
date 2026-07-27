@@ -207,3 +207,68 @@
 {"text": "i scatter a handful of marbles under the pursuing guards", "action": "use_item"}
 {"text": "i ask the farmer how to reach the monastery", "action": "speak"}
 {"text": "which path should we take to get to the harbor", "action": "speak"}
+{"text": "put mage armor on the wizard", "action": "cast"}
+{"text": "lay protection from evil on the paladin", "action": "cast"}
+{"text": "set shield of faith on our cleric", "action": "cast"}
+{"text": "drop faerie fire over the goblins", "action": "cast"}
+{"text": "cast aid on the whole group", "action": "cast"}
+{"text": "cast sanctuary on our healer", "action": "cast"}
+{"text": "i put hex on the bandit captain", "action": "cast"}
+{"text": "bane on the two cultists", "action": "cast"}
+{"text": "use jump to clear the chasm", "action": "cast"}
+{"text": "use levitate to reach the ledge", "action": "cast"}
+{"text": "use knock to open the vault door", "action": "cast"}
+{"text": "i loose an arrow at the sentry", "action": "attack"}
+{"text": "i let fly a bolt at the troll", "action": "attack"}
+{"text": "i nock an arrow and shoot the bandit", "action": "attack"}
+{"text": "i sling a stone at the goblin", "action": "attack"}
+{"text": "i toss a handful of caltrops down the corridor", "action": "use_item"}
+{"text": "i fling a fistful of marbles behind me", "action": "use_item"}
+{"text": "i lob a smoke pellet down the tunnel", "action": "use_item"}
+{"text": "i throw my chalk across the room to mark the wall", "action": "use_item"}
+{"text": "i toss the rope up to the ledge", "action": "use_item"}
+{"text": "i roll a flask of oil under the door", "action": "use_item"}
+{"text": "which way to the market square", "action": "speak"}
+{"text": "which door leads to the cellar", "action": "speak"}
+{"text": "where does this tunnel come out", "action": "speak"}
+{"text": "how do i get to the docks from here", "action": "speak"}
+{"text": "i hew the troll with my greataxe", "action": "attack"}
+{"text": "i cleave through the bandit with my halberd", "action": "attack"}
+{"text": "i chop the ogre down with my greatsword", "action": "attack"}
+{"text": "i swing my warhammer into the goblin", "action": "attack"}
+{"text": "i kick the goblin off the walkway", "action": "attack"}
+{"text": "i boot the thug down the stairs", "action": "attack"}
+{"text": "i shove the cultist off the parapet", "action": "attack"}
+{"text": "put resistance on the paladin", "action": "cast"}
+{"text": "put longstrider on our scout", "action": "cast"}
+{"text": "lay mage armor on the sorcerer", "action": "cast"}
+{"text": "put haste on the monk", "action": "cast"}
+{"text": "set bless on the front rank", "action": "cast"}
+{"text": "i scatter ball bearings down the passage", "action": "use_item"}
+{"text": "i drop ball bearings behind us as we run", "action": "use_item"}
+{"text": "i toss a pebble down the shaft to hear the bottom", "action": "use_item"}
+{"text": "i throw a coin across the room to test the floor", "action": "use_item"}
+{"text": "i warn the barkeep that my axe is thirsty", "action": "speak"}
+{"text": "i mention that my sword needs sharpening", "action": "speak"}
+{"text": "i complain that the goblin bit me yesterday", "action": "speak"}
+{"text": "i remind her that i spared the bandit i caught", "action": "speak"}
+{"text": "i wonder aloud whether fireball would fix this", "action": "speak"}
+{"text": "i ask if anyone here can cast healing magic", "action": "speak"}
+{"text": "i compliment garrick on the sword he forged", "action": "speak"}
+{"text": "i introduce myself to garrick", "action": "speak"}
+{"text": "i tell mira about the goblin camp", "action": "speak"}
+{"text": "i nod to mira and sit at the table", "action": "speak"}
+{"text": "i whistle at the guard by the door", "action": "speak"}
+{"text": "i wave at mira across the room", "action": "speak"}
+{"text": "i joke that i could take the whole room in a fight", "action": "speak"}
+{"text": "i threaten to burn the place down unless he talks", "action": "speak"}
+{"text": "i describe how i killed the dragon last winter", "action": "speak"}
+{"text": "i attack garrick", "action": "attack"}
+{"text": "i swing at mira", "action": "attack"}
+{"text": "i strike garrick with my longsword", "action": "attack"}
+{"text": "i punch mira", "action": "attack"}
+{"text": "i stab garrick with my dagger", "action": "attack"}
+{"text": "i shoot mira with my bow", "action": "attack"}
+{"text": "i hit garrick the smith with my hammer", "action": "attack"}
+{"text": "attack mira now", "action": "attack"}
+{"text": "i lunge at garrick with my blade", "action": "attack"}
