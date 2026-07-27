@@ -13,6 +13,9 @@ FALLBACK_K = 5
 FALLBACK_MECHANICS_MARGIN = 0.10
 FALLBACK_BACKEND = "embed"
 
+IMPLEMENTED_BACKENDS = frozenset({"embed", "llm"})
+PLANNED_BACKENDS = frozenset({"hosted"})
+
 _dotenv_loaded = False
 
 
@@ -62,11 +65,17 @@ def embed_k() -> int:
 
 
 def mechanics_margin() -> float:
+    """Confidence margin an attack/cast must clear. Out-of-range values fall back.
+
+    This is the one setting whose miscalibration corrupts game state, so it never
+    accepts a value silently: a negative or above-1 margin is a typo, and 0
+    disables the gate entirely, which is legal but loud.
+    """
     value = _raw("INTENT_MECHANICS_MARGIN")
     if value is None:
         return FALLBACK_MECHANICS_MARGIN
     try:
-        return float(value)
+        margin = float(value)
     except ValueError:
         logger.warning(
             "INTENT_MECHANICS_MARGIN=%r is not a number; using %.2f",
@@ -75,6 +84,34 @@ def mechanics_margin() -> float:
         )
         return FALLBACK_MECHANICS_MARGIN
 
+    if not 0.0 <= margin <= 1.0:
+        logger.warning(
+            "INTENT_MECHANICS_MARGIN=%r is outside [0, 1]; using %.2f",
+            value,
+            FALLBACK_MECHANICS_MARGIN,
+        )
+        return FALLBACK_MECHANICS_MARGIN
+    if margin == 0.0:
+        logger.warning(
+            "INTENT_MECHANICS_MARGIN=0: the mechanics confidence gate is disabled, "
+            "so any attack/cast classification can change game state"
+        )
+    return margin
+
 
 def intent_backend() -> str:
-    return (_raw("INTENT_BACKEND") or FALLBACK_BACKEND).lower()
+    """Selected Layer 1 backend. Raises for a named-but-unbuilt backend."""
+    value = (_raw("INTENT_BACKEND") or FALLBACK_BACKEND).lower()
+    if value in IMPLEMENTED_BACKENDS:
+        return value
+    if value in PLANNED_BACKENDS:
+        raise NotImplementedError(
+            f"INTENT_BACKEND={value!r} is designed but not built; "
+            f"use one of {sorted(IMPLEMENTED_BACKENDS)}"
+        )
+    logger.warning(
+        "INTENT_BACKEND=%r is not recognized; using %r",
+        value,
+        FALLBACK_BACKEND,
+    )
+    return FALLBACK_BACKEND

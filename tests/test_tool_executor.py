@@ -1,5 +1,9 @@
 # tests/test_tool_executor.py
-"""Smoke tests for TOOL_CALL parse/execute (no live local LLM required)."""
+"""Smoke tests for TOOL_CALL parse/execute (no live local LLM required).
+
+Tests that pin intent with a generate_intent_json mock must also set
+INTENT_BACKEND=llm, or the mock is inert and the real embedding classifier runs.
+"""
 
 import os
 import sys
@@ -121,6 +125,7 @@ async def test_run_tool_loop_with_mock_generate(monkeypatch):
     from src.tool_executor import run_tool_loop
 
     # Avoid empty/speak short-circuit; this test covers TOOL_CALL → narrate loop
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"move","confidence":0.9}'),
@@ -280,6 +285,7 @@ async def test_attack_table_inventory_clarify(monkeypatch):
     from src.tool_executor import run_tool_loop, NONBINDING_NOTE
 
     clear_pending_clarify("player1")
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(
@@ -382,6 +388,7 @@ async def test_try_again_uses_last_attack(monkeypatch):
     clear_pending_clarify("player1")
     clear_last_attack("player1")
     set_last_attack("player1", target="table", weapon="Longsword", raw="i attack the table")
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
@@ -444,6 +451,7 @@ async def test_and_again_resolves_attack(monkeypatch):
     clear_pending_clarify("player1")
     clear_last_attack("player1")
     set_last_attack("player1", target="next table", weapon="Longsword")
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
@@ -496,6 +504,7 @@ async def test_use_sword_with_last_target(monkeypatch):
     clear_pending_clarify("player1")
     clear_last_attack("player1")
     set_last_attack("player1", target="table", weapon="unarmed", raw="i attack the table")
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(
@@ -553,6 +562,7 @@ async def test_speak_rejects_invented_mechanics(monkeypatch):
     clear_last_attack("player1")
     set_last_attack("player1", target="table", weapon="Longsword")
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"speak","confidence":0.9}'),
@@ -577,6 +587,7 @@ async def test_speak_skips_tool_schema(monkeypatch):
     """Soft RP must not prefill the full TOOL_CALL schema (latency)."""
     from src.tool_executor import run_tool_loop
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"speak","confidence":0.95}'),
@@ -604,6 +615,7 @@ async def test_speak_skips_tool_schema(monkeypatch):
 async def test_force_retry_still_no_tools_adds_note(monkeypatch):
     from src.tool_executor import run_tool_loop, NONBINDING_NOTE
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"rest","confidence":0.9}'),
@@ -633,6 +645,7 @@ async def test_player_cast_soft_narration_triggers_backend_tools(monkeypatch):
     """Soft tavern prose + 'i cast fireball' must run backend cast tools."""
     from src.tool_executor import run_tool_loop
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(
@@ -682,6 +695,7 @@ async def test_failed_cast_tools_hard_refuse_ignores_bad_narration(monkeypatch):
     """If tools reject the cast, do not keep LLM fireball chaos from chat history."""
     from src.tool_executor import run_tool_loop
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(

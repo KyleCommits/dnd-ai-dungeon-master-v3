@@ -1,4 +1,6 @@
 # tests/test_intent_policy.py
+from unittest.mock import AsyncMock
+
 import pytest
 
 import src.player_intent as pi
@@ -43,6 +45,63 @@ async def test_unresolved_target_downgrades_to_speak(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_confident_cast_with_resolved_spell_is_cast(monkeypatch):
+    _stub(monkeypatch, action="cast", margin=0.9,
+          slots=Slots(spell_name="Fireball", resolved=True))
+    out = await pi.parse_player_intent("i cast fireball")
+    assert out.action == "cast"
+    assert out.spell_name == "Fireball"
+    assert out.source == "embed"
+
+
+@pytest.mark.asyncio
+async def test_low_margin_cast_downgrades_to_speak(monkeypatch):
+    _stub(monkeypatch, action="cast", margin=0.01,
+          slots=Slots(spell_name="Fireball", resolved=True))
+    out = await pi.parse_player_intent("maybe some fire would help here")
+    assert out.action == "speak"
+    assert out.spell_name is None, "a downgraded cast must not carry a spell forward"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_spell_downgrades_to_speak(monkeypatch):
+    _stub(monkeypatch, action="cast", margin=0.9, slots=Slots(resolved=False))
+    out = await pi.parse_player_intent("i cast something clever")
+    assert out.action == "speak"
+
+
+@pytest.mark.asyncio
+async def test_margin_setting_drives_the_gate(monkeypatch):
+    """Pin the threshold to the setting, not to a hardcoded number."""
+    _stub(monkeypatch, action="attack", margin=0.5,
+          slots=Slots(target="table", resolved=True))
+
+    monkeypatch.setenv("INTENT_MECHANICS_MARGIN", "0.25")
+    permissive = await pi.parse_player_intent("i attack the table")
+    assert permissive.action == "attack"
+
+    monkeypatch.setenv("INTENT_MECHANICS_MARGIN", "0.95")
+    strict = await pi.parse_player_intent("i attack the table")
+    assert strict.action == "speak"
+
+
+@pytest.mark.asyncio
+async def test_slot_filling_failure_degrades_to_speak(monkeypatch):
+    def boom(text, act, **kw):
+        raise RuntimeError("npc lookup exploded")
+
+    monkeypatch.setattr(
+        pi, "classify",
+        lambda text, k=5: Classification(
+            action="attack", margin=0.9, top_score=0.9, neighbors=[]
+        ),
+    )
+    monkeypatch.setattr(pi, "fill_slots", boom)
+    out = await pi.parse_player_intent("i attack the goblin")
+    assert out.action == "speak", "a broken closed set must not become a live attack"
+
+
+@pytest.mark.asyncio
 async def test_apology_classifies_as_speak_without_regex(monkeypatch):
     _stub(monkeypatch, action="speak", margin=0.8, slots=Slots(resolved=True))
     out = await pi.parse_player_intent(
@@ -78,6 +137,66 @@ async def test_classifier_failure_degrades_to_speak(monkeypatch):
     monkeypatch.setattr(pi, "classify", boom)
     out = await pi.parse_player_intent("i attack the table")
     assert out.action == "speak", "failures must never crash or invent mechanics"
+
+
+@pytest.mark.asyncio
+async def test_downgraded_cast_never_reaches_the_spell_slot(monkeypatch):
+    """The gate is worthless if a later layer re-derives the spell from raw text.
+
+    tool_executor used to extract a spell name from the player's message regardless
+    of the classified action, so a cast the policy had already downgraded still hit
+    the backend cast tools and consumed a real slot.
+    """
+    from src import tool_executor as te
+
+    _stub(monkeypatch, action="cast", margin=0.01,
+          slots=Slots(spell_name="Fireball", resolved=True))
+    backend = AsyncMock(return_value=[])
+    monkeypatch.setattr(te, "_backend_cast_tools", backend)
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "You hesitate, and the tavern noise fills the gap."
+
+    out = await te.run_tool_loop(
+        "ctx",
+        [{"name": "consume_spell_slot", "description": "x", "parameters": {}}],
+        mock_generate,
+        player_message="i cast fireball",
+        user_id="player1",
+        character_id="4",
+    )
+    backend.assert_not_awaited()
+    assert "[mechanics]" not in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_resolved_cast_still_reaches_the_backend_tools(monkeypatch):
+    """The counterpart to the test above: the gate must not break real casts."""
+    from src import tool_executor as te
+
+    _stub(monkeypatch, action="cast", margin=0.9,
+          slots=Slots(spell_name="Fireball", resolved=True))
+    backend = AsyncMock(
+        return_value=[{
+            "name": "consume_spell_slot",
+            "arguments": {},
+            "result": {"success": True, "message": "Slot spent."},
+        }]
+    )
+    monkeypatch.setattr(te, "_backend_cast_tools", backend)
+
+    async def mock_generate(prompt, max_new_tokens=160, available_functions=None):
+        return "Flame blossoms from your palm."
+
+    await te.run_tool_loop(
+        "ctx",
+        [{"name": "consume_spell_slot", "description": "x", "parameters": {}}],
+        mock_generate,
+        player_message="i cast fireball",
+        user_id="player1",
+        character_id="4",
+    )
+    backend.assert_awaited()
 
 
 @pytest.mark.asyncio

@@ -388,7 +388,8 @@ async def run_tool_loop(
             and not player_intent.target
             and get_last_attack(uid)
         ):
-            # Method-only follow-up from IntentLLM: reuse last target
+            # Method-only follow-up from IntentLLM: reuse last target. Unreachable
+            # from the embed backend, where a resolved attack always has a target.
             player_intent.target = get_last_attack(uid).target
             player_intent.source = "last_attack"
         elif player_intent.action == "speak":
@@ -410,7 +411,14 @@ async def run_tool_loop(
                 if hydrated:
                     player_intent = hydrated
 
-    cast_spell = player_intent.spell_name or extract_cast_spell_name(working_message)
+    # Layer 1 owns the cast decision. Re-extracting a spell name from raw text
+    # regardless of the action would resurrect a cast the margin/slot gate just
+    # downgraded to speak, and the backend safety net below would then consume a
+    # real spell slot for it.
+    if player_intent.action == "cast":
+        cast_spell = player_intent.spell_name or extract_cast_spell_name(working_message)
+    else:
+        cast_spell = None
 
     # Soft RP / speak: short GPU narrate WITHOUT the ~8k-char tool schema (was causing
     # ~4k-token prefills and 90s timeouts on "hello").

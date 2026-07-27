@@ -175,15 +175,19 @@ async def test_bare_attack_still_clarifies(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_force_retry_then_tool(monkeypatch):
-    """Legacy backend forced to 'speak' so this can isolate the DM TOOL_CALL
-    force-retry mechanism (unrelated to which classifier decided the intent)."""
+    """Isolates the DM TOOL_CALL force-retry mechanism, whichever backend chose the intent.
+
+    Driven by a rest intent rather than a cast one. A speak intent can no longer
+    reach these rounds at all: tool_executor stopped re-deriving a spell name from
+    raw text, so cast-looking prose behind a speak intent now narrates and stops
+    (see test_downgraded_cast_never_reaches_the_spell_slot in test_intent_policy.py).
+    """
     from src.tool_executor import run_tool_loop, NONBINDING_NOTE
 
     monkeypatch.setenv("INTENT_BACKEND", "llm")
-    # Intent spine would short-circuit cast; this test covers DM TOOL_CALL force-retry
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
-        AsyncMock(return_value='{"action":"speak","confidence":0.9}'),
+        AsyncMock(return_value='{"action":"rest","confidence":0.9}'),
     )
 
     calls = {"n": 0}
@@ -191,15 +195,15 @@ async def test_force_retry_then_tool(monkeypatch):
     async def mock_generate(prompt, max_new_tokens=250, available_functions=None):
         calls["n"] += 1
         if calls["n"] == 1:
-            return "You cast Fireball and deal 28 damage!"
+            return "You settle in and recover 28 hit points!"
         if calls["n"] == 2:
-            assert "mechanics were required" in prompt.lower() or "cast a spell" in prompt.lower()
+            assert "mechanics were required" in prompt.lower()
             return (
                 'TOOL_CALL\n'
                 '{"name": "roll_dice_for_character", "arguments": {"dice_string": "1d6", "description": "x"}}\n'
                 'END_TOOL_CALL\n'
             )
-        return "The spell is resolved by the dice."
+        return "The rest is resolved by the dice."
 
     funcs = [{
         "name": "roll_dice_for_character",
@@ -208,13 +212,13 @@ async def test_force_retry_then_tool(monkeypatch):
     }]
 
     out = await run_tool_loop(
-        "Player: I cast fireball",
+        "Player: I take a long rest",
         funcs,
         mock_generate,
         max_rounds=2,
-        player_message="i cast fireball",
+        player_message="I take a long rest",
     )
     assert calls["n"] == 3  # claim -> force tool -> narration
     assert NONBINDING_NOTE not in out
     assert "TOOL_CALL" not in out
-    assert "spell" in out.lower() or "Mechanics" in out or "dice" in out.lower()
+    assert "rest" in out.lower() or "Mechanics" in out or "dice" in out.lower()

@@ -1,5 +1,9 @@
 # tests/test_player_intent.py
-"""Small IntentLLM primary path + engine resolve (mocked model; no live download)."""
+"""Engine resolve plus the shared Layer 1 helpers (no live download).
+
+Tests that pin intent with a generate_intent_json mock must also set
+INTENT_BACKEND=llm, or the mock is inert and the real embedding classifier runs.
+"""
 
 import os
 import sys
@@ -25,6 +29,7 @@ async def test_bare_attack_keeps_model_method(monkeypatch):
     """IntentLLM owns method; no English cue list rewrites unarmed → None."""
     from src.player_intent import parse_player_intent
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(
@@ -79,6 +84,7 @@ async def test_pronoun_attack_target_clarifies(monkeypatch):
 async def test_repeat_last_action_parsed(monkeypatch):
     from src.player_intent import parse_player_intent
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"repeat_last","confidence":0.95}'),
@@ -111,6 +117,7 @@ async def test_i_say_is_speech_act_without_intent_llm(monkeypatch):
 async def test_hello_speak_mechanics_false_positive_safe_fallback(monkeypatch):
     from src.tool_executor import run_tool_loop
 
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(return_value='{"action":"speak","confidence":0.95}'),

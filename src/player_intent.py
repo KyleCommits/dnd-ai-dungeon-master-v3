@@ -1,5 +1,9 @@
 # src/player_intent.py
-"""Layer 1: structured player intent. Small intent LLM parses English; engine owns rules."""
+"""Layer 1: structured player intent. An embedding kNN classifier picks the action and
+closed-set matching fills the slots; the engine still owns every rule.
+
+The small intent LLM is demoted to a comparison baseline behind INTENT_BACKEND=llm.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,7 @@ import logging
 import os
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from .mechanics_claims import clarification_prompt
 from .intent_classifier import classify
@@ -17,11 +21,6 @@ from .intent_config import mechanics_margin as _mechanics_margin
 from .intent_slots import fill as fill_slots
 
 logger = logging.getLogger(__name__)
-
-# Mirrors intent_config.mechanics_margin() at import time for introspection
-# (e.g. eval scripts). The live gate in parse_player_intent re-reads the
-# setting on every call so environment/settings changes take effect at runtime.
-MECHANICS_MARGIN: float = _mechanics_margin()
 
 _INTENT_JSON_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
 
@@ -63,7 +62,8 @@ class PlayerIntent:
     clarify_prompt: Optional[str] = None
     confidence: float = 0.0
     raw: str = ""
-    source: str = "intent_llm"  # intent_llm | rules | pending
+    # embed | speech_act | last_attack | intent_llm | rules | pending
+    source: str = "intent_llm"
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -300,7 +300,7 @@ def fail_closed_clarify(raw: str, reason: str = "parse") -> PlayerIntent:
 
 
 def normalize_intent_post_llm(intent: PlayerIntent) -> PlayerIntent:
-    """Retained for the demoted llm backend and pending-clarify paths."""
+    """Retained for the demoted llm backend; _parse_via_llm is the only caller."""
     if intent.action == "repeat_last":
         intent.needs_clarify = False
         intent.clarify_prompt = None
@@ -336,12 +336,24 @@ def intent_from_last_attack_memory(
     )
 
 
+LLM_MIN_CONFIDENCE = 0.35
+
+
 async def _parse_via_llm(
     raw: str,
     weapon_names: Optional[Sequence[str]],
     npc_names: Optional[Sequence[str]],
 ) -> PlayerIntent:
-    """Legacy Qwen2.5-1.5B JSON path. Reachable only via INTENT_BACKEND=llm."""
+    """Legacy Qwen2.5-1.5B JSON path. Reachable only via INTENT_BACKEND=llm.
+
+    This is not the pre-redesign live path. It keeps the JSON parse, the attack
+    clarify policy, and the low-confidence clarify gate, but the old
+    is_social_dialogue override is gone for good: it was a keyword list, and
+    replacing keyword lists with labeled data is the point of the redesign. So an
+    apology this model reads as an attack now reaches the resolver, where world
+    validation is the only thing stopping it. Treat this backend as a measurement
+    baseline, not as something safe to ship.
+    """
     try:
         from .intent_llm import intent_llm
         from .target_resolve import list_known_npc_names
@@ -353,7 +365,18 @@ async def _parse_via_llm(
         parsed = parse_intent_json(out or "", raw)
         if parsed is None:
             return fail_closed_clarify(raw, "bad_json")
-        return normalize_intent_post_llm(parsed)
+        parsed = normalize_intent_post_llm(parsed)
+        # This model's self-reported confidence is noisy, but a number it labels
+        # low is still the only uncertainty signal the JSON path has.
+        if parsed.confidence < LLM_MIN_CONFIDENCE and parsed.action not in (
+            "speak",
+            "repeat_last",
+        ):
+            parsed.needs_clarify = True
+            parsed.clarify_prompt = parsed.clarify_prompt or clarification_prompt(
+                "action"
+            )
+        return parsed
     except Exception as exc:
         logger.warning("Intent LLM failed: %s", exc)
         return fail_closed_clarify(raw, "timeout_or_error")
@@ -373,6 +396,14 @@ async def parse_player_intent(
 
     Mechanics actions must clear both the margin gate and slot resolution.
     Everything else becomes speak, which cannot corrupt game state.
+
+    spell_names has no production caller yet: run_tool_loop does not forward one,
+    so live casts take the "no list available" branch in intent_slots._fill_cast
+    and intent_resolver._resolve_cast remains the only legality check. Tests and
+    the eval harness pass it to exercise the closed-set path.
+
+    use_intent_llm is accepted for signature compatibility and ignored. The
+    backend is chosen by INTENT_BACKEND, not per call.
     """
     raw = (text or "").strip()
     if not raw:

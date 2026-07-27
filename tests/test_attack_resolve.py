@@ -253,6 +253,9 @@ async def test_swing_sword_resolves_without_llm(monkeypatch):
         calls["n"] += 1
         raise AssertionError("DM LLM should not run for clear swing attacks")
 
+    # Pin the intent so this test measures attack resolution, not classification.
+    # The mock only takes effect on the llm backend.
+    monkeypatch.setenv("INTENT_BACKEND", "llm")
     monkeypatch.setattr(
         "src.intent_llm.intent_llm.generate_intent_json",
         AsyncMock(
@@ -287,9 +290,9 @@ async def test_swing_sword_resolves_without_llm(monkeypatch):
         mock_generate,
         player_message="i swing my sword at the table again",
         user_id="player1",
-        # Production always supplies the character's real weapon list here (see
-        # dynamic_dm.py's _get_active_weapon_names); the embed-backed slot filler
-        # only trusts a weapon name that matches this closed set.
+        # Mirrors production, which supplies the character's real weapon list here
+        # (see dynamic_dm.py's _get_active_weapon_names). On the embed backend the
+        # slot filler only trusts a weapon name that matches this closed set.
         weapon_names=["sword"],
         character_id="4",
     )
