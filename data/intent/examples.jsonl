@@ -272,3 +272,21 @@
 {"text": "i hit garrick the smith with my hammer", "action": "attack"}
 {"text": "attack mira now", "action": "attack"}
 {"text": "i lunge at garrick with my blade", "action": "attack"}
+{"text": "i attack the table again", "action": "attack"}
+{"text": "i attack mira again", "action": "attack"}
+{"text": "i hit the goblin again", "action": "attack"}
+{"text": "i swing at the orc again", "action": "attack"}
+{"text": "i punch the guard again", "action": "attack"}
+{"text": "i shoot the wolf again", "action": "attack"}
+{"text": "i strike the bandit again", "action": "attack"}
+{"text": "i cleave the ghoul again", "action": "attack"}
+{"text": "forgive me for wrecking the furniture", "action": "speak"}
+{"text": "sorry for breaking the bench last time", "action": "speak"}
+{"text": "i smashed the crates yesterday evening", "action": "speak"}
+{"text": "i wrecked those boxes last night", "action": "speak"}
+{"text": "i broke those crates during the fight yesterday", "action": "speak"}
+{"text": "could i pay you back for the ruined furniture", "action": "speak"}
+{"text": "can i repay the damages for that door", "action": "speak"}
+{"text": "i owe you for the door i ruined earlier", "action": "speak"}
+{"text": "please forgive the mess i made of your benches", "action": "speak"}
+{"text": "i apologize for smashing your crates last night", "action": "speak"}

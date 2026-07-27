@@ -203,6 +203,8 @@ def test_playtest_regressions_route_correctly(monkeypatch):
         ("im sorry that i destroyed your tables. will 1000 gold cover the damage?", "speak"),
         ('i say "sorry about the tables"', "speak"),
         ("i attack the table", "attack"),
+        # Playtest 2026-07-27: "again" was outvoted by past-tense table speak examples.
+        ("i attack the table again", "attack"),
         ("i attack Mira", "attack"),
     ]
     failures = [
