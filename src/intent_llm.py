@@ -36,18 +36,20 @@ def build_intent_prompt(
         "- named NPC as live attack target => attack that name\n"
         "- try again / and again / once more => repeat_last\n"
         "- cast => cast + spell_name\n"
+        # Input first, output second. Written the other way round the model never
+        # sees an input-to-output mapping, only a list of JSON blobs.
         "Examples:\n"
-        '{"action":"speak","confidence":0.95}  // hello!\n'
-        '{"action":"speak","confidence":0.95}  // i say hello\n'
-        '{"action":"speak","confidence":0.95}'
-        '  // im sorry i destroyed your tables. will 1000 gold cover it?\n'
-        '{"action":"speak","confidence":0.95}'
-        '  // i say "sorry about the tables — will gold cover it?"\n'
-        '{"action":"attack","target":"table","method":null,"confidence":0.9}'
-        '  // i attack the table\n'
-        '{"action":"attack","target":"Mira","method":null,"confidence":0.9}'
-        '  // i attack Mira\n'
-        '{"action":"repeat_last","confidence":0.95}  // try again\n'
+        'Player: "hello!"\nJSON: {"action":"speak","confidence":0.95}\n'
+        'Player: "i say hello"\nJSON: {"action":"speak","confidence":0.95}\n'
+        'Player: "im sorry i destroyed your tables. will 1000 gold cover it?"\n'
+        'JSON: {"action":"speak","confidence":0.95}\n'
+        'Player: "i say \\"sorry about the tables\\""\n'
+        'JSON: {"action":"speak","confidence":0.95}\n'
+        'Player: "i attack the table"\n'
+        'JSON: {"action":"attack","target":"table","method":null,"confidence":0.9}\n'
+        'Player: "i attack Mira"\n'
+        'JSON: {"action":"attack","target":"Mira","method":null,"confidence":0.9}\n'
+        'Player: "try again"\nJSON: {"action":"repeat_last","confidence":0.95}\n'
         f"Allowed weapon names (hints): {weapons}\n"
         f"Known NPCs (hints): {npcs}\n"
         f'Player: "{text}"\n'
