@@ -9,6 +9,16 @@ Nothing in this project requires a secret production password — use a local pa
 
 Windows: install PostgreSQL 15+ (or use Docker). Ensure the server listens on `localhost:5432`.
 
+On the Dell (no Docker): user-space PostgreSQL 17 binaries under
+`%LOCALAPPDATA%\dnd-ai-dm`. Start with:
+
+```powershell
+powershell -File scripts/start_local_postgres.ps1
+```
+
+That creates role `dnd` / database `dnd_bot_v3`. It does **not** include `pgvector`
+(RAG only). The web play loop does not need the vector extension.
+
 Optional Docker:
 
 ```bash

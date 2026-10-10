@@ -42,7 +42,14 @@ async def test_database_connection():
 
 @pytest.mark.asyncio
 async def test_llm_initialization_and_generation():
-    """4. Checks if the LLM can be loaded and generate a response."""
+    """4. Local Transformers narrator. Skip on CPU / Gemini-first machines."""
+    backend = str(getattr(settings, "DM_BACKEND", "local") or "local").lower()
+    if backend != "local":
+        pytest.skip(f"DM_BACKEND={backend}: local Transformers preload is not required")
+    try:
+        import bitsandbytes  # noqa: F401
+    except Exception:
+        pytest.skip("bitsandbytes / CUDA not installed; local narrator needs an NVIDIA GPU")
     try:
         llm_manager.load_model()
         assert llm_manager.pipeline is not None, "LLM pipeline failed to initialize."

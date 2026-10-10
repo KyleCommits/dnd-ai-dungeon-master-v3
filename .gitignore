@@ -106,6 +106,7 @@ venv.bak
 # Project Specific
 llama_env/
 llama_env_311/
+.local-postgres/
 logs/
 *.log
 .env.*
@@ -117,11 +118,7 @@ dnd_src_material/
 scratch.txt
 requirements_backup.txt
 
-# AI/LLM related
-*claude*
-*gemini*
-*Claude*
-*Gemini*
+# AI chat dumps (keep source + docs trackable — do not glob *gemini*)
 
 # Development folders
 archive/
@@ -129,11 +126,6 @@ archive/
 .pytest_cache/
 research_inspiration/
 prompts/
-docs/
-
-# Config files with sensitive data
-src/config.py
-config.py
 
 # Frontend dependencies and build
 node_modules/

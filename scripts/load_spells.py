@@ -16,14 +16,21 @@ from src.enhanced_spell_system import SpellDataLoader, enhanced_spell_manager
 
 async def main():
     """Load all spells from the D&D 5e API into data/spells.db"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Load D&D 5e spells into data/spells.db")
+    parser.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+    args = parser.parse_args()
+
     print("Loading spells from D&D 5e API into local SQLite...")
     print("This may take 2-5 minutes depending on network speed")
     print()
 
-    response = input("Continue with spell loading? (y/n): ").lower()
-    if response != 'y':
-        print("Spell loading cancelled.")
-        return
+    if not args.yes:
+        response = input("Continue with spell loading? (y/n): ").lower()
+        if response != 'y':
+            print("Spell loading cancelled.")
+            return
 
     try:
         loader = SpellDataLoader(allow_network=True)
